@@ -35,9 +35,8 @@
     <PublishUrl>publish\</PublishUrl>
     <InstallUrl />
     <TargetCulture>zh-chs</TargetCulture>
-    <!-- ClickOnce/VSTO requires every version component to be <= 65535. -->
-    <!-- 9730 is the number of days from 2000-01-01 to 2026-08-22. -->
-    <ApplicationVersion>1.2.9730.3</ApplicationVersion>
+    <!-- ClickOnce/VSTO requires a four-part numeric version. -->
+    <ApplicationVersion>1.2.0.0</ApplicationVersion>
     <AutoIncrementApplicationRevision>false</AutoIncrementApplicationRevision>
     <UpdateEnabled>false</UpdateEnabled>
     <UpdateInterval>0</UpdateInterval>
@@ -455,11 +454,8 @@
   <PropertyGroup>
     <SignManifests>true</SignManifests>
   </PropertyGroup>
-  <PropertyGroup>
-    <ManifestKeyFile>oWorkhelper_TemporaryKey.pfx</ManifestKeyFile>
-  </PropertyGroup>
-  <PropertyGroup>
-    <ManifestCertificateThumbprint>665A337EF8564F2D47E557FC7C6C8B861E6674DD</ManifestCertificateThumbprint>
+  <PropertyGroup Condition="'$(IWORKHELPER_MANIFEST_CERT_THUMBPRINT)' != '' and '$(ManifestCertificateThumbprint)' == ''">
+    <ManifestCertificateThumbprint>$(IWORKHELPER_MANIFEST_CERT_THUMBPRINT)</ManifestCertificateThumbprint>
   </PropertyGroup>
   <PropertyGroup>
     <SignAssembly>false</SignAssembly>

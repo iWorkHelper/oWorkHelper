@@ -2,7 +2,7 @@
 
 `oWorkHelper` 是 [iWorkHelper Organization](https://github.com/iWorkHelper) 旗下的 Outlook VSTO 加载项，用于批量处理邮件中的 PDF 附件（发票、行程单），完成自动识别、合并、命名和归档。
 
-**当前版本**：`v1.2.260822.3`
+**当前版本**：`v1.2.0`
 
 下载：[最新 Release](https://github.com/iWorkHelper/oWorkHelper/releases/latest)
 
@@ -170,26 +170,17 @@ VSTO 加载项通过 ClickOnce 发布或手动注册安装到 Outlook。加载�
 
 ## 版本号规则
 
-格式：`a.b.yyMMdd.d`
-
-- `a`：大版本
-- `b`：小版本
-- `yyMMdd`：发布日期
-- `d`：修订次数
-
-例：`1.2.260822.3` 表示 2026 年 8 月 22 日的第 3 次发布。
+对外产品版本使用 Major.Minor.Patch，当前版本为 1.2.0。需要四段数值版本的 VSTO / Assembly 字段使用 1.2.0.0。详细规则见 [docs/RELEASE.md](docs/RELEASE.md)。
 
 ## 文档入口
 
 | 文档 | 内容 |
 |------|------|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | 系统架构、代码结构、核心流程、安全设计 |
-| [DEVELOPMENT.md](docs/DEVELOPMENT.md) | 开发环境、调试方法、测试工具、设计决策 |
-| [BUILD-AND-RELEASE.md](docs/BUILD-AND-RELEASE.md) | 编译配置、构建命令、版本规则、发布流程 |
+| [DEVELOPMENT.md](docs/DEVELOPMENT.md) | 开发环境、调试、OfflineTester 和设计决策 |
 | [CONFIGURATION.md](docs/CONFIGURATION.md) | 用户设置、OCR 配置、命名模板变量 |
-| [USER-GUIDE.md](docs/USER-GUIDE.md) | 使用指南、操作步骤、处理规则 |
 | [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | 故障排查、诊断工具、日志位置 |
-| [CHANGELOG.md](docs/CHANGELOG.md) | 版本变更记录 |
+| [RELEASE.md](docs/RELEASE.md) | 版本、构建、发布检查和变更记录 |
 
 ## Release
 

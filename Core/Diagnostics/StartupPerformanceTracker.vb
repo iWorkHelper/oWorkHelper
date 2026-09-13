@@ -33,7 +33,7 @@ Public Module StartupPerformanceTracker
         Try
             SyncLock _SyncRoot
                 If String.IsNullOrWhiteSpace(stageName) Then Return 0
-                Dim sw As Stopwatch
+                Dim sw As Stopwatch = Nothing
                 If Not _trackers.TryGetValue(stageName, sw) Then Return 0
                 If sw Is Nothing Then Return 0
                 sw.Stop()
