@@ -1,4 +1,5 @@
 Imports System.Collections.Generic
+Imports System.Globalization
 Imports System.Text
 Imports System.Web.Script.Serialization
 
@@ -51,6 +52,13 @@ End Class
 ''' </summary>
 Public Class BaiduMultipleInvoiceResponseParser
 
+    ''' <summary>
+    ''' JSON 体上限（16 MB）。多票识别响应正常远小于此值；
+    ''' 设上限而非 Integer.MaxValue，使超大/异常响应以可处理的解析失败结束，
+    ''' 而不是在 DeserializeObject 中抛出 OutOfMemoryException。
+    ''' </summary>
+    Private Const MaxJsonBytes As Integer = 16 * 1024 * 1024
+
     Public Function Parse(rawJson As String) As BaiduParsedDocument
         Dim doc As New BaiduParsedDocument()
         Try
@@ -60,7 +68,9 @@ Public Class BaiduMultipleInvoiceResponseParser
             End If
 
             Dim serializer As New JavaScriptSerializer()
-            serializer.MaxJsonLength = Integer.MaxValue
+            ' 上限而非 Integer.MaxValue：避免恶意/异常的超大响应把进程内存吃满
+            ' （Integer.MaxValue 在超大输入下会触发 OutOfMemory 而非可处理的解析失败）。
+            serializer.MaxJsonLength = MaxJsonBytes
             Dim root As Dictionary(Of String, Object) = TryCast(serializer.DeserializeObject(rawJson), Dictionary(Of String, Object))
             If root Is Nothing Then
                 doc.ParseError = "根节点无法解析"
@@ -183,17 +193,20 @@ Public Class BaiduMultipleInvoiceResponseParser
         End If
 
         ' 置信度：probability 可能是对象 {average,min,...} 或标量。
+        ' 数值一律按 InvariantCulture 解析（JSON 数字固定用 "." 作小数点）。
         If map.ContainsKey("probability") AndAlso map("probability") IsNot Nothing Then
             Dim probMap As Dictionary(Of String, Object) = TryCast(map("probability"), Dictionary(Of String, Object))
             If probMap IsNot Nothing AndAlso probMap.ContainsKey("average") Then
                 Dim p As Double
-                If Double.TryParse(Convert.ToString(probMap("average")), p) Then
+                If Double.TryParse(Convert.ToString(probMap("average"), CultureInfo.InvariantCulture),
+                                   NumberStyles.Float, CultureInfo.InvariantCulture, p) Then
                     field.HasProbability = True
                     field.Probability = p
                 End If
             Else
                 Dim p As Double
-                If Double.TryParse(Convert.ToString(map("probability")), p) Then
+                If Double.TryParse(Convert.ToString(map("probability"), CultureInfo.InvariantCulture),
+                                   NumberStyles.Float, CultureInfo.InvariantCulture, p) Then
                     field.HasProbability = True
                     field.Probability = p
                 End If

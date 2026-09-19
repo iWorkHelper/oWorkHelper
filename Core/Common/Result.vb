@@ -19,7 +19,7 @@ Public Enum ProcessStatus
 End Enum
 
 ''' <summary>
-''' 统一结果对象（无返回值）。所有核心流程返回该类型或其泛型版本，
+''' 统一结果对象（无返回值）。所有核心流程返回该类型，
 ''' 以避免仅靠异常/MessageBox 传递状态。
 ''' </summary>
 Public Class Result
@@ -58,54 +58,6 @@ Public Class Result
 
     Public Shared Function ConfigMissing(message As String) As Result
         Return New Result With {.Status = ProcessStatus.ConfigurationMissing, .Message = message}
-    End Function
-
-    Public Shared Function Skip(message As String) As Result
-        Return New Result With {.Status = ProcessStatus.Skipped, .Message = message}
-    End Function
-
-End Class
-
-''' <summary>
-''' 带返回值的统一结果对象。
-''' </summary>
-''' <typeparam name="T">返回值类型。</typeparam>
-Public Class Result(Of T)
-
-    Private ReadOnly _messages As New List(Of String)()
-
-    Public Property Status As ProcessStatus
-    Public Property Message As String
-    Public Property Value As T
-
-    Public ReadOnly Property Messages As List(Of String)
-        Get
-            Return _messages
-        End Get
-    End Property
-
-    Public ReadOnly Property IsSuccess As Boolean
-        Get
-            Return Status = ProcessStatus.Success
-        End Get
-    End Property
-
-    Public Sub AddMessage(text As String)
-        If Not String.IsNullOrEmpty(text) Then
-            _messages.Add(text)
-        End If
-    End Sub
-
-    Public Shared Function Ok(value As T, Optional message As String = "") As Result(Of T)
-        Return New Result(Of T) With {.Status = ProcessStatus.Success, .Value = value, .Message = message}
-    End Function
-
-    Public Shared Function Fail(message As String) As Result(Of T)
-        Return New Result(Of T) With {.Status = ProcessStatus.Failure, .Message = message}
-    End Function
-
-    Public Shared Function ConfigMissing(message As String) As Result(Of T)
-        Return New Result(Of T) With {.Status = ProcessStatus.ConfigurationMissing, .Message = message}
     End Function
 
 End Class

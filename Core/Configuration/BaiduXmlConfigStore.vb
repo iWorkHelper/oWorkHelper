@@ -1,4 +1,6 @@
 Imports System.IO
+Imports System.Globalization
+Imports System.Xml
 Imports System.Xml.Linq
 
 ''' <summary>
@@ -28,32 +30,71 @@ Public Module BaiduXmlConfigStore
 
     ''' <summary>
     ''' 保存配置。plainSecret 为明文 Secret Key，写入前 DPAPI 加密。
+    ''' 返回是否成功。**加密失败时中止保存**（绝不明文落盘）。
+    ''' 采用"写临时文件 → 原子替换"，避免中断/满盘产生残破 XML。
     ''' </summary>
-    Public Sub Save(options As BaiduOcrOptions, plainSecret As String)
-        PathHelper.EnsureDirectory(PathHelper.GetAppDataRoot())
-        Dim encSecret As String = SecretProtector.Protect(If(plainSecret, String.Empty))
+    Public Function Save(options As BaiduOcrOptions, plainSecret As String) As Boolean
+        Dim tmp As String = Nothing
+        Try
+            If options Is Nothing Then options = New BaiduOcrOptions()
 
-        Dim doc As New XDocument(
-            New XElement("BaiduOcr",
-                New XElement("Enabled", options.Enabled.ToString()),
-                New XElement("ApiKey", If(options.ApiKey, String.Empty)),
-                New XElement("SecretKey", encSecret),
-                New XElement("TokenUrl", If(options.TokenUrl, String.Empty)),
-                New XElement("OcrApiUrl", If(options.OcrApiUrl, String.Empty)),
-                New XElement("TimeoutMilliseconds", options.TimeoutMilliseconds.ToString()),
-                New XElement("ReturnProbability", options.ReturnProbability.ToString()),
-                New XElement("ReturnLocation", options.ReturnLocation.ToString()),
-                New XElement("VerifyParameter", options.VerifyParameter.ToString()),
-                New XElement("MaxPages", options.MaxPages.ToString()),
-                New XElement("PreferLocalParse", options.PreferLocalParse.ToString()),
-                New XElement("AutoFallbackToOcr", options.AutoFallbackToOcr.ToString())))
+            Dim encOk As Boolean
+            Dim encSecret As String = SecretProtector.TryProtect(If(plainSecret, String.Empty), encOk)
+            If Not encOk Then
+                AppLogger.Error("OCR 外部配置未保存：Secret Key 加密失败（已拒绝明文落盘）。")
+                Return False
+            End If
+            If Not String.IsNullOrEmpty(plainSecret) AndAlso Not SecretProtector.IsProtected(encSecret) Then
+                AppLogger.Error("OCR 外部配置未保存：加密结果不是 DPAPI 密文。")
+                Return False
+            End If
 
-        doc.Save(GetPath())
-        AppLogger.Info("OCR 外部配置已保存（Secret Key 已 DPAPI 加密）。")
-    End Sub
+            PathHelper.EnsureDirectory(PathHelper.GetAppDataRoot())
+
+            Dim doc As New XDocument(
+                New XElement("BaiduOcr",
+                    New XElement("Enabled", options.Enabled.ToString()),
+                    New XElement("ApiKey", If(options.ApiKey, String.Empty)),
+                    New XElement("SecretKey", If(encSecret, String.Empty)),
+                    New XElement("TokenUrl", If(options.TokenUrl, String.Empty)),
+                    New XElement("OcrApiUrl", If(options.OcrApiUrl, String.Empty)),
+                    New XElement("TimeoutMilliseconds", options.TimeoutMilliseconds.ToString(CultureInfo.InvariantCulture)),
+                    New XElement("ReturnProbability", options.ReturnProbability.ToString()),
+                    New XElement("ReturnLocation", options.ReturnLocation.ToString()),
+                    New XElement("VerifyParameter", options.VerifyParameter.ToString()),
+                    New XElement("MaxPages", options.MaxPages.ToString(CultureInfo.InvariantCulture)),
+                    New XElement("PreferLocalParse", options.PreferLocalParse.ToString()),
+                    New XElement("AutoFallbackToOcr", options.AutoFallbackToOcr.ToString())))
+
+            Dim target As String = GetPath()
+            tmp = target & ".tmp"
+            doc.Save(tmp)
+            If File.Exists(target) Then
+                File.Replace(tmp, target, Nothing)
+            Else
+                File.Move(tmp, target)
+            End If
+            tmp = Nothing
+            AppLogger.Info("OCR 外部配置已保存（Secret Key 已 DPAPI 加密）。")
+            Return True
+        Catch ex As Exception
+            AppLogger.Error("保存 OCR 外部配置失败。", ex)
+            Return False
+        Finally
+            ' 失败时不要留下半成品临时文件。
+            If Not String.IsNullOrEmpty(tmp) Then
+                Try
+                    If File.Exists(tmp) Then File.Delete(tmp)
+                Catch
+                End Try
+            End If
+        End Try
+    End Function
 
     ''' <summary>
-    ''' 读取配置。SecretKey 若为 DPAPI 密文则解密；文件不存在返回 Nothing。异常返回 Nothing。
+    ''' 读取配置。SecretKey 若为 DPAPI 密文则解密；文件不存在返回 Nothing。
+    ''' 文件损坏与文件不存在都会返回 Nothing（调用方按"OCR 未配置"处理），但损坏会记日志。
+    ''' 显式禁用 DTD 处理与外部解析器（XXE 加固；.NET 4.8 默认已安全，此处显式化）。
     ''' </summary>
     Public Function Load() As BaiduOcrOptions
         Try
@@ -61,8 +102,19 @@ Public Module BaiduXmlConfigStore
             If Not File.Exists(p) Then
                 Return Nothing
             End If
-            Dim root As XElement = XDocument.Load(p).Root
+
+            Dim settings As New XmlReaderSettings()
+            settings.DtdProcessing = DtdProcessing.Prohibit
+            settings.XmlResolver = Nothing
+
+            Dim root As XElement
+            Using reader As XmlReader = XmlReader.Create(p, settings)
+                Dim doc As XDocument = XDocument.Load(reader)
+                root = doc.Root
+            End Using
+
             If root Is Nothing Then
+                AppLogger.Warn("OCR 外部配置为空文档：" & PrivacySafeFormatter.MaskPath(p))
                 Return Nothing
             End If
 

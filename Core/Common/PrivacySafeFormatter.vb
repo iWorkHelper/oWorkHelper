@@ -1,10 +1,34 @@
 Imports System.IO
 Imports System.Collections.Generic
+Imports System.Text.RegularExpressions
 
 ''' <summary>
 ''' 面向日志/报告的最小脱敏工具，默认隐藏邮件主题、文件名和本机路径中的敏感细节。
 ''' </summary>
 Public Module PrivacySafeFormatter
+
+    ''' <summary>匹配盘符路径（C:\...）或 UNC 路径（\\server\share\...）。</summary>
+    Private ReadOnly PathPattern As New Regex(
+        "([A-Za-z]:\\[^""'\s;，。、）)]*)|(\\\\[^""'\s;，。、）)]+)",
+        RegexOptions.Compiled)
+
+    ''' <summary>
+    ''' 清除自由文本中的本机路径痕迹。用于异常消息等"非结构化"文案：
+    ''' 这类消息常内嵌完整临时路径，而临时路径里又嵌有原始附件文件名，
+    ''' 直接写入报告/日志会绕过 MaskPath/MaskFileName 的脱敏口径。
+    ''' </summary>
+    Public Function ScrubPaths(text As String) As String
+        If String.IsNullOrEmpty(text) Then Return text
+        Try
+            Return PathPattern.Replace(text, AddressOf ScrubPathMatch)
+        Catch
+            Return text
+        End Try
+    End Function
+
+    Private Function ScrubPathMatch(m As Match) As String
+        Return MaskPath(m.Value)
+    End Function
 
     Public Function MaskSubject(subject As String) As String
         If String.IsNullOrWhiteSpace(subject) Then
@@ -41,7 +65,7 @@ Public Module PrivacySafeFormatter
                 Return "<path>"
             End If
 
-            If trimmed.StartsWith("\\") Then
+            If trimmed.StartsWith("\\", StringComparison.Ordinal) Then
                 Return "\\<share>\...\" & MaskFileName(fileName)
             End If
 

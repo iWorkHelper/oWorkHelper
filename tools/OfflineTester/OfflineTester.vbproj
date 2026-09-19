@@ -93,6 +93,9 @@
     <Compile Include="..\..\Core\Common\ExceptionFormatter.vb">
       <Link>Core\Common\ExceptionFormatter.vb</Link>
     </Compile>
+    <Compile Include="..\..\Core\Common\ComRelease.vb">
+      <Link>Core\Common\ComRelease.vb</Link>
+    </Compile>
     <Compile Include="..\..\Core\Common\ErrorSeverity.vb">
       <Link>Core\Common\ErrorSeverity.vb</Link>
     </Compile>

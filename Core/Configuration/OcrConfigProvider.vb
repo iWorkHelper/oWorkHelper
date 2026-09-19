@@ -38,14 +38,58 @@ Public Module OcrConfigProvider
             End Try
         End If
 
+        ' —— 端点白名单 ——
+        ' 外部配置文件（%AppData%\iWorkHelper\baidu-ocr.config.xml）当前用户可写，且可能随
+        ' 漫游/同步 profile 落到别处。若不加校验，能写该文件的一方即可把 TokenUrl 指向自己的
+        ' 主机，随后 BaiduAccessTokenProvider 会向该主机 POST client_secret。
+        ' 因此非受信任域的端点一律回退为官方默认值（并在日志中说明）。
+        Const DefaultTokenUrl As String = "https://aip.baidubce.com/oauth/2.0/token"
+        Const DefaultOcrUrl As String = "https://aip.baidubce.com/rest/2.0/ocr/v1/multiple_invoice"
+
+        If Not IsTrustedEndpoint(options.TokenUrl) Then
+            AppLogger.Warn("Token 端点不在受信任域内，已回退为默认百度端点（如需自建网关请加入白名单常量）。")
+            options.TokenUrl = DefaultTokenUrl
+        End If
+        If Not IsTrustedEndpoint(options.OcrApiUrl) Then
+            AppLogger.Warn("OCR 端点不在受信任域内，已回退为默认百度端点（如需自建网关请加入白名单常量）。")
+            options.OcrApiUrl = DefaultOcrUrl
+        End If
+
         ' —— 统一收口（单一控制入口）——
         ' 在线 OCR 是否可调用，仅由「编译期是否允许在线解析（BuildFeatures.OnlineParserEnabled）」
         ' 与「当前 ParseMode 是否为在线解析」共同决定；不再依赖已废弃的 OcrEnabled 复选框。
-        ' 内网版（未定义 INTERNET_BUILD）恒为 False，从而在编译期层面禁止在线 OCR。
+        ' 内网版（未定义 INTERNET_BUILD）恒为 False。
         options.Enabled = IsOnlineParseAllowed()
 
         AppLogger.Info("OCR 配置已加载：" & options.ToSafeSummary())
         Return options
+    End Function
+
+    ''' <summary>
+    ''' 受信任的端点主机后缀（可在此追加企业自建网关域名）。
+    ''' 匹配规则：主机等于后缀，或以 ".后缀" 结尾（避免 evil-baidubce.com 之类伪装）。
+    ''' </summary>
+    Private ReadOnly TrustedHostSuffixes As String() = {"baidubce.com"}
+
+    ''' <summary>
+    ''' 校验端点 URL 是否可安全承载密钥：必须是 https，且主机落在受信任域内。
+    ''' </summary>
+    Public Function IsTrustedEndpoint(url As String) As Boolean
+        If String.IsNullOrWhiteSpace(url) Then Return False
+        Try
+            Dim u As New Uri(url.Trim())
+            If Not String.Equals(u.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) Then Return False
+            Dim host As String = u.Host
+            For Each suffix As String In TrustedHostSuffixes
+                If String.Equals(host, suffix, StringComparison.OrdinalIgnoreCase) OrElse
+                   host.EndsWith("." & suffix, StringComparison.OrdinalIgnoreCase) Then
+                    Return True
+                End If
+            Next
+            Return False
+        Catch
+            Return False
+        End Try
     End Function
 
     ''' <summary>

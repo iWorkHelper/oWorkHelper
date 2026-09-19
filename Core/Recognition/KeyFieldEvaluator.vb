@@ -29,11 +29,6 @@ Public Module KeyFieldEvaluator
         Return missing
     End Function
 
-    ''' <summary>关键字段是否充分（无缺失）。</summary>
-    Public Function IsSufficient(inv As InvoiceInfo, docType As InvoiceDocumentType) As Boolean
-        Return GetMissingKeyFields(inv, docType).Count = 0
-    End Function
-
     ''' <summary>
     ''' 统一命名核心字段完整度：{乘车日期}{金额}{出发地点}{到达地点}。
     ''' 乘车日期=行程起止日期/首条行程出发时间/开票日期；金额=行程金额/价税合计/金额。

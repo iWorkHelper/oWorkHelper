@@ -44,7 +44,9 @@ Public Module ArchiveReportWriter
                     sb.AppendLine("    未知变量: " & JoinList(it.UnknownPlaceholders))
                 End If
                 If Not String.IsNullOrEmpty(it.Message) Then
-                    sb.AppendLine("    原因: " & it.Message)
+                    ' 消息可能来自原始异常文本并内嵌本机临时路径（含原始附件名），
+                    ' 报告又常写在共享归档目录，故必须脱敏后再落盘。
+                    sb.AppendLine("    原因: " & PrivacySafeFormatter.ScrubPaths(it.Message))
                 End If
             Next
 

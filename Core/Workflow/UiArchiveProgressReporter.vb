@@ -20,10 +20,14 @@ Public Class UiArchiveProgressReporter
         End Try
     End Sub
 
-    ''' <summary>当前不提供取消按钮，恒为 False（见文档说明）。</summary>
+    ''' <summary>转发进度窗口的取消状态：用户在进度窗口点击“取消”后返回 True。</summary>
     Public ReadOnly Property IsCancellationRequested As Boolean Implements IArchiveProgressReporter.IsCancellationRequested
         Get
-            Return False
+            Try
+                Return _form IsNot Nothing AndAlso Not _form.IsDisposed AndAlso _form.CancelRequested
+            Catch
+                Return False
+            End Try
         End Get
     End Property
 

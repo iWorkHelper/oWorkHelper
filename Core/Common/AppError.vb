@@ -33,10 +33,15 @@ Public Class AppError
         Return UserMessage & Environment.NewLine & "建议：" & Suggestion
     End Function
 
-    ''' <summary>写入日志（级别按 Severity；含 DetailForLog，绝不含敏感信息）。</summary>
+    ''' <summary>
+    ''' 写入日志（级别按 Severity；含 DetailForLog，绝不含敏感信息）。
+    ''' DetailForLog 常来自异常消息并内嵌本机路径（临时路径中含原始附件名），
+    ''' 因此落盘前统一做路径脱敏。
+    ''' </summary>
     Public Sub LogSelf()
+        Dim detail As String = PrivacySafeFormatter.ScrubPaths(DetailForLog)
         Dim line As String = String.Format("[{0}] {1}{2}", Code, UserMessage,
-                                            If(String.IsNullOrEmpty(DetailForLog), "", " | 详情: " & DetailForLog))
+                                            If(String.IsNullOrEmpty(detail), "", " | 详情: " & detail))
         Select Case Severity
             Case ErrorSeverity.Info : AppLogger.Info(line)
             Case ErrorSeverity.Warning : AppLogger.Warn(line)

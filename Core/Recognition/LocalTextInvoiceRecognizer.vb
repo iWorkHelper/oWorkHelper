@@ -74,8 +74,10 @@ Public Class LocalTextInvoiceRecognizer
     End Function
 
     Private Function DetectDocumentType(text As String) As InvoiceDocumentType
-        Dim isRide As Boolean = text.Contains("行程单") OrElse text.Contains("网约车") OrElse text.Contains("滴滴")
         Dim isInvoice As Boolean = text.Contains("发票号码") OrElse text.Contains("电子发票") OrElse text.Contains("增值税")
+        ' 收紧滴滴判定：不再“全文出现 行程单/网约车/滴滴 即判定”，避免销售方名称（如“滴滴出行科技有限公司”）
+        ' 或备注里偶然提到“行程单”就把常规增值税发票误判为行程单（O-38）。
+        Dim isRide As Boolean = HasRideTripEvidence(text)
         ' 合并 PDF 同时含发票与行程单：优先按行程单标记（滴滴场景），发票字段仍会解析。
         If isRide Then
             Return InvoiceDocumentType.RideTripStatement
@@ -84,6 +86,35 @@ Public Class LocalTextInvoiceRecognizer
             Return InvoiceDocumentType.VatInvoice
         End If
         Return InvoiceDocumentType.Unknown
+    End Function
+
+    ''' <summary>
+    ''' 判断是否为网约车/滴滴行程单。要求“行程单专属证据”，而非任意位置出现关键词：
+    '''  - 行程明细/表头强信号：上车时间、“共N笔行程”、行程起止、行程明细；
+    '''  - 行程单表格表头：同时出现“起点”与“终点”；
+    '''  - “行程单/网约车”出现在**表头位置**（独占短行，且不是“备注”字段行）。
+    ''' 仅“滴滴”二字（常见于销售方名称或备注）不构成判定依据。
+    ''' </summary>
+    Private Function HasRideTripEvidence(text As String) As Boolean
+        If String.IsNullOrEmpty(text) Then Return False
+
+        ' —— 行程明细/表头强信号 ——
+        If text.Contains("上车时间") Then Return True
+        If text.Contains("行程起止") Then Return True
+        If text.Contains("行程明细") Then Return True
+        If Regex.IsMatch(text, "共\s*[0-9]+\s*笔行程") Then Return True
+        ' 行程单表格表头：起点 + 终点
+        If text.Contains("起点") AndAlso text.Contains("终点") Then Return True
+
+        ' —— “行程单/网约车”需处在表头位置：独占短行且非备注行 ——
+        For Each ln As String In Regex.Split(text, "\r?\n")
+            Dim t As String = If(ln, "").Trim()
+            If t.Length = 0 OrElse t.Length > 24 Then Continue For
+            If t.StartsWith("备注", StringComparison.Ordinal) Then Continue For
+            If t.Contains("行程单") OrElse t.Contains("网约车") Then Return True
+        Next
+
+        Return False
     End Function
 
     Private Sub ParseVatInvoiceFields(text As String, result As InvoiceRecognitionResult)
@@ -230,6 +261,15 @@ Public Class LocalTextInvoiceRecognizer
 
         AppLogger.Info("行程单解析：声明笔数=" & inv.StatedTripCount & "，实际明细=" & inv.Trips.Count &
                        "，起点=" & TripFieldLog(inv, Function(t) t.StartLocation) & "，终点=" & TripFieldLog(inv, Function(t) t.EndLocation))
+
+        ' O-39：多行程单当前只把“首条行程”用于命名（起点/终点/金额），表头级合计金额仍完整。
+        ' 声明笔数与实际解析条数不一致时明确写入结果消息并告警，避免误以为已覆盖全部行程。
+        If inv.StatedTripCount > inv.Trips.Count Then
+            Dim mismatch As String = "行程单声明 " & inv.StatedTripCount & " 笔行程，实际仅解析出 " & inv.Trips.Count &
+                                     " 笔；命名使用首条行程的起点/终点/金额（多行程限制见 docs\TROUBLESHOOTING.md）。"
+            result.Messages.Add(mismatch)
+            AppLogger.Warn(mismatch)
+        End If
     End Sub
 
     Private Function TripFieldLog(inv As InvoiceInfo, getter As Func(Of InvoiceTripInfo, String)) As String
@@ -306,11 +346,11 @@ Public Class LocalTextInvoiceRecognizer
                     If String.IsNullOrEmpty(trip.DepartureTime) Then trip.DepartureTime = t Else trip.DepartureTime &= " " & t
                     Continue For
                 End If
-                If t.EndsWith("市") AndAlso t.Length <= 6 Then
+                If t.EndsWith("市", StringComparison.Ordinal) AndAlso t.Length <= 6 Then
                     trip.City = t : Continue For
                 End If
-                If t.Contains("企业打车") OrElse t.StartsWith("个人") Then Continue For
-                If t.EndsWith("市") AndAlso t.Length <= 3 Then Continue For ' 城市残词（如“市”）
+                If t.Contains("企业打车") OrElse t.StartsWith("个人", StringComparison.Ordinal) Then Continue For
+                If t.EndsWith("市", StringComparison.Ordinal) AndAlso t.Length <= 3 Then Continue For ' 城市残词（如“市”）
 
                 ' 只保留落在 起点/终点 列区间内的词（排除车型/城市/时间/里程/金额/备注列）。
                 If w.CenterX < leftBound OrElse w.CenterX >= rightBound Then Continue For
@@ -429,11 +469,6 @@ Public Class LocalTextInvoiceRecognizer
         Return s.Trim()
     End Function
 
-    Private Function IsReasonablyComplete(inv As InvoiceInfo) As Boolean
-        Return Not String.IsNullOrWhiteSpace(inv.InvoiceNumber) _
-            AndAlso (Not String.IsNullOrWhiteSpace(inv.TotalWithTax) OrElse Not String.IsNullOrWhiteSpace(inv.Amount))
-    End Function
-
     Private Function SetField(result As InvoiceRecognitionResult, fieldName As String, value As String) As String
         If Not String.IsNullOrWhiteSpace(value) Then
             Dim trimmed As String = value.Trim()
@@ -449,7 +484,9 @@ Public Class LocalTextInvoiceRecognizer
             If m.Success AndAlso m.Groups.Count > 1 Then
                 Return m.Groups(1).Value.Trim()
             End If
-        Catch
+        Catch ex As Exception
+            ' 正则异常（如模式错误）不应静默吞掉：记日志以便诊断识别率下降的原因。
+            AppLogger.Warn("本地识别正则匹配异常（已跳过该模式）：" & ExceptionFormatter.ToUserMessage(ex))
         End Try
         Return Nothing
     End Function

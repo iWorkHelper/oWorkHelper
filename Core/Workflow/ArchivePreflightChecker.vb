@@ -1,4 +1,5 @@
 Imports System.IO
+Imports System.Globalization
 
 ''' <summary>
 ''' 归档前预检查：在真正开始批量处理前，一次性检查配置与运行环境，避免中途才失败。
@@ -80,12 +81,25 @@ Public Class ArchivePreflightChecker
         End If
 
         ' 路径格式校验
+        Dim full As String = Nothing
         Try
-            Dim full As String = Path.GetFullPath(archiveFolder)
+            full = Path.GetFullPath(archiveFolder)
         Catch
             r.AddCode(AppErrorCode.ArchiveFolderPathInvalid, blocking:=True)
             Return
         End Try
+
+        ' 路径长度校验（O-12）：项目无 app.config，.NET 4.8 下未启用长路径，
+        ' 超长路径会在 File.Copy 时抛 PathTooLongException —— 且只在批次跑到一半时才暴露。
+        ' 这里按"最长可能产出名"做非阻断提示（并非每个文件都会达到最长）。
+        If Not String.IsNullOrEmpty(full) Then
+            Dim longestName As Integer = MaxBaseNameLength + ConflictSuffixReserve + ExtensionReserve
+            If full.Length + 1 + longestName > MaxPathLength Then
+                AppLogger.Warn("归档目录路径较长（" & full.Length.ToString(CultureInfo.InvariantCulture) &
+                               " 字符），加上文件名后可能超过 " & MaxPathLength.ToString(CultureInfo.InvariantCulture) & "。")
+                r.AddCode(AppErrorCode.ArchivePathTooLong, blocking:=False)
+            End If
+        End If
 
         ' 不存在 → 尝试创建（相当于“自动创建”）
         If Not SafeDirExists(archiveFolder) Then
@@ -99,6 +113,46 @@ Public Class ArchivePreflightChecker
         If Not IsDirWritable(archiveFolder) Then
             r.AddCode(AppErrorCode.ArchiveFolderNotWritable, blocking:=True)
         End If
+
+        ' 磁盘可用空间（O-16）：仅提示，不阻断。
+        CheckFreeSpace(archiveFolder, r)
+    End Sub
+
+    ''' <summary>Windows 传统 MAX_PATH 上限（含结尾 NUL 共 260，可用路径长度 259）。</summary>
+    Private Const MaxPathLength As Integer = 259
+
+    ''' <summary>文件名主体最大长度（与 <see cref="FileNameSanitizer"/> 的 MaxBaseNameLength 保持一致）。</summary>
+    Private Const MaxBaseNameLength As Integer = 120
+
+    ''' <summary>"(nn)" 同名冲突后缀预留。</summary>
+    Private Const ConflictSuffixReserve As Integer = 6
+
+    ''' <summary>扩展名 ".pdf" 预留。</summary>
+    Private Const ExtensionReserve As Integer = 4
+
+    ''' <summary>归档磁盘可用空间下限（100 MB）：低于该值仅提示，不阻断。</summary>
+    Private Const MinFreeSpaceBytes As Long = 100L * 1024 * 1024
+
+    ''' <summary>
+    ''' 磁盘可用空间提示（O-16）。单批需要为每张 PDF 复制一份，滴滴发票还需额外的合并副本，
+    ''' 空间不足时会在批次中途逐项失败，因此提前给出提示。
+    ''' 无法获取磁盘信息（UNC / 异常）时不作判定。
+    ''' </summary>
+    Private Sub CheckFreeSpace(folder As String, r As ArchivePreflightResult)
+        Try
+            Dim root As String = Path.GetPathRoot(Path.GetFullPath(folder))
+            If String.IsNullOrWhiteSpace(root) Then Return
+            Dim d As New DriveInfo(root)
+            If Not d.IsReady Then Return
+            If d.AvailableFreeSpace < MinFreeSpaceBytes Then
+                AppLogger.Warn("归档磁盘可用空间不足：" &
+                               (d.AvailableFreeSpace \ (1024 * 1024)).ToString(CultureInfo.InvariantCulture) & " MB（下限 " &
+                               (MinFreeSpaceBytes \ (1024 * 1024)).ToString(CultureInfo.InvariantCulture) & " MB）")
+                r.AddCode(AppErrorCode.ArchiveDiskSpaceLow, blocking:=False)
+            End If
+        Catch
+            ' 无法获取时忽略。
+        End Try
     End Sub
 
     Private Function SafeDirExists(dir As String) As Boolean
@@ -109,13 +163,18 @@ Public Class ArchivePreflightChecker
         End Try
     End Function
 
-    ''' <summary>写权限检测：尝试创建并删除一个临时文件。</summary>
+    ''' <summary>
+    ''' 写权限检测：在目标目录创建并立即关闭一个探针文件。
+    ''' 使用 <see cref="FileOptions.DeleteOnClose"/>：即使进程在写入后被强杀，内核在关闭句柄时
+    ''' 也会删除该文件，因此不会在用户的归档目录里留下 .iwh_write_test_* 残留（O-16）。
+    ''' </summary>
     Private Function IsDirWritable(dir As String) As Boolean
         Try
             If Not Directory.Exists(dir) Then Return False
             Dim probe As String = Path.Combine(dir, ".iwh_write_test_" & Guid.NewGuid().ToString("N").Substring(0, 8) & ".tmp")
-            File.WriteAllText(probe, "x")
-            File.Delete(probe)
+            Using fs As New FileStream(probe, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.DeleteOnClose)
+                fs.WriteByte(0)
+            End Using
             Return True
         Catch
             Return False

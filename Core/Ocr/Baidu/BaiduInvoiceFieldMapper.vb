@@ -251,7 +251,7 @@ Public Class BaiduInvoiceFieldMapper
             If String.IsNullOrEmpty(inv.TotalWithTax) Then inv.TotalWithTax = v
         ElseIf lower.Contains("origin") OrElse lower.Contains("start") OrElse lower.Contains("from") OrElse lower.Contains("起") Then
             If String.IsNullOrEmpty(trip.StartLocation) Then trip.StartLocation = v
-        ElseIf lower.Contains("dest") OrElse lower.Contains("终") OrElse lower.Contains("到点") OrElse lower.EndsWith("end") Then
+        ElseIf lower.Contains("dest") OrElse lower.Contains("终") OrElse lower.Contains("到点") OrElse lower.EndsWith("end", StringComparison.Ordinal) Then
             If String.IsNullOrEmpty(trip.EndLocation) Then trip.EndLocation = v
         ElseIf lower.Contains("mile") OrElse lower.Contains("里程") OrElse lower.Contains("distance") Then
             If String.IsNullOrEmpty(trip.Mileage) Then trip.Mileage = v

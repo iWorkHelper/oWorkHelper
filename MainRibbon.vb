@@ -1,5 +1,6 @@
 Imports Microsoft.Office.Tools.Ribbon
 Imports System.Windows.Forms
+Imports System.Globalization
 
 Public Class MainRibbon
 
@@ -19,19 +20,27 @@ Public Class MainRibbon
         AppLogger.Initialize(SafeSetting(Function() My.Settings.ArchiveFolderPath))
         AppLogger.Info("用户点击『归档』按钮。线程=" & threadId)
 
-        ' —— 第一步：原子获取唯一运行锁（防重复点击 / 防并发归档）——
-        Dim runToken As ArchiveRunToken = ArchiveRunGuard.TryAcquire("archive-" & DateTime.Now.ToString("yyyyMMddHHmmssfff"))
-        If runToken Is Nothing Then
-            AppLogger.Warn("获取归档运行锁失败：已有归档任务正在运行。持有者：" & ArchiveRunGuard.DescribeHolder())
-            MessageBox.Show(UserFriendlyMessageProvider.Describe(AppErrorCode.ArchiveAlreadyRunning).ToUserText(),
-                            "工作助手 - 归档", MessageBoxButtons.OK, MessageBoxIcon.Warning)
-            Return
-        End If
-        AppLogger.Info("已获取归档运行锁。")
-
         Dim progress As ProgressForm = Nothing
         Try
-            Using runToken ' 保证预检查失败 / 业务异常 / 进度窗口异常等任何路径都释放运行锁
+            ' —— 第一步：原子获取唯一运行锁（防重复点击 / 防并发归档）——
+            ' 直接用 Using 包裹"获取"动作本身，确保从获取成功那一刻起就没有
+            ' "已持有但尚未进入 Using"的窗口（中间任何异常都会永久卡住进程级锁）。
+            Using runToken As ArchiveRunToken = ArchiveRunGuard.TryAcquire("archive-" & DateTime.Now.ToString("yyyyMMddHHmmssfff", CultureInfo.InvariantCulture))
+                If runToken Is Nothing Then
+                    AppLogger.Warn("获取归档运行锁失败：已有归档任务正在运行。持有者：" & ArchiveRunGuard.DescribeHolder())
+                    MessageBox.Show(UserFriendlyMessageProvider.Describe(AppErrorCode.ArchiveAlreadyRunning).ToUserText(),
+                                    "工作助手 - 归档", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+                    Return
+                End If
+                AppLogger.Info("已获取归档运行锁。")
+
+                ' 批次进行期间禁用归档按钮，避免 DoEvents 泵消息时用户重复触发
+                ' （运行锁本身也会拒绝，但禁用按钮能给出更清晰的交互反馈）。
+                Try
+                    ButtonArchive.Enabled = False
+                Catch
+                End Try
+
                 Dim application = Globals.ThisAddIn.Application
 
                 ' 归档前迁移：确保明文 Secret Key 已转换为 DPAPI 加密（防止用户不打开设置直接点归档）。
@@ -72,8 +81,21 @@ Public Class MainRibbon
                 Dim batch As ArchiveBatchResult = workflow.Run(application, reporter)
                 AppLogger.Info("批量归档流程结束。批次=" & batch.BatchId)
 
+                ' 批次因用户取消而提前结束时，在进度窗口上给出明确收尾提示。
+                If reporter.IsCancellationRequested Then
+                    Try
+                        progress.MarkCanceled()
+                    Catch
+                    End Try
+                End If
+
                 If progress IsNot Nothing Then
-                    progress.Close()
+                    Try
+                        progress.Close()
+                    Catch closeEx As Exception
+                        ' 进度窗口收尾失败不应把已成功的归档报成"未知错误"。
+                        AppLogger.Warn("关闭进度窗口失败（忽略）：" & closeEx.Message)
+                    End Try
                     progress = Nothing
                 End If
 
@@ -102,6 +124,11 @@ Public Class MainRibbon
                     progress.Close()
                     progress.Dispose()
                 End If
+            Catch
+            End Try
+            ' 无论成功失败都恢复按钮可用状态。
+            Try
+                ButtonArchive.Enabled = True
             Catch
             End Try
             AppLogger.Info("归档运行锁已释放（线程=" & threadId & "）。")
@@ -162,16 +189,24 @@ Public Class MainRibbon
         End Try
     End Function
 
-    ''' <summary>安全获取当前选中项数量（COM，失败返回 -1）。</summary>
+    ''' <summary>
+    ''' 安全获取当前选中项数量（COM，失败返回 -1）。
+    ''' 必须显式释放 ActiveExplorer / Selection：Selection 会传递引用全部选中 MailItem，
+    ''' 不释放会让邮件对象以非确定方式驻留（违反 MailAttachmentReader 自述的 COM 释放契约）。
+    ''' </summary>
     Private Function GetSelectedCount(application As Object) As Integer
+        Dim explorer As Object = Nothing
+        Dim selection As Object = Nothing
         Try
-            Dim explorer = application.ActiveExplorer()
+            explorer = application.ActiveExplorer()
             If explorer Is Nothing Then Return 0
-            Dim selection = explorer.Selection
+            selection = explorer.Selection
             If selection Is Nothing Then Return 0
-            Return selection.Count
+            Return CInt(selection.Count)
         Catch
             Return -1 ' 未知：不因此阻断
+        Finally
+            ComRelease.ReleaseAll(selection, explorer)
         End Try
     End Function
 
@@ -183,9 +218,13 @@ Public Class MainRibbon
         End Try
     End Function
 
+    ''' <summary>
+    ''' 取批次首条消息作为提示文案。消息可能来自 MailAttachmentReader 并**包含原始邮件主题**，
+    ''' 因此进入 UI 前必须脱敏，与日志路径的脱敏口径保持一致。
+    ''' </summary>
     Private Function FirstMessage(batch As ArchiveBatchResult, fallback As String) As String
         If batch IsNot Nothing AndAlso batch.Messages IsNot Nothing AndAlso batch.Messages.Count > 0 Then
-            Return batch.Messages(0)
+            Return PrivacySafeFormatter.MaskSubject(batch.Messages(0))
         End If
         Return fallback
     End Function

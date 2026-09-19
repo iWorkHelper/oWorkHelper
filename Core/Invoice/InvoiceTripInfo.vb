@@ -31,9 +31,6 @@ Public Class InvoiceTripInfo
     ''' <summary>城市。</summary>
     Public Property City As String
 
-    ''' <summary>司机/车辆相关信息（如可识别）。</summary>
-    Public Property DriverInfo As String
-
     ''' <summary>里程（公里，原始文本）。</summary>
     Public Property Mileage As String
 

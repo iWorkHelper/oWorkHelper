@@ -2,7 +2,7 @@
 
 `oWorkHelper` 是 [iWorkHelper Organization](https://github.com/iWorkHelper) 旗下的 Outlook VSTO 加载项，用于批量处理邮件中的 PDF 附件（发票、行程单），完成自动识别、合并、命名和归档。
 
-**当前版本**：`v1.2.0`
+**当前版本**：`v1.2.1`
 
 下载：[最新 Release](https://github.com/iWorkHelper/oWorkHelper/releases/latest)
 
@@ -92,21 +92,29 @@ oWorkHelper/
 
 | 配置 | 编译常量 | 输出目录 | 在线 OCR |
 |------|---------|---------|---------|
-| Debug | （无） | `bin\Debug\` | 禁用 |
-| Release | （无） | `bin\Release\` | 禁用 |
-| Release-Intranet | `INTRANET_BUILD` | `bin\Release-Intranet\` | 禁用 |
-| Release-Internet | `INTERNET_BUILD` | `bin\Release-Internet\` | 启用 |
+| Debug | `VSTO40,UseOfficeInterop` | `bin\Debug\` | 禁用 |
+| Release-Intranet | `VSTO40,UseOfficeInterop,INTRANET_BUILD` | `bin\Release-Intranet\` | 禁用 |
+| Release-Internet | `VSTO40,UseOfficeInterop,INTERNET_BUILD` | `bin\Release-Internet\` | 运行时启用 |
+
+> 项目**没有** `Release` 配置，也没有 `bin\Release\` 输出目录。
 
 ### 编译步骤
 
+> `oWorkhelper.sln` 的构建**必须提供清单签名证书指纹**，否则 VSTO 构建报
+> `error MSB4044`（`SignFile` 缺少 `CertificateThumbprint`）。
+> 用 `/p:ManifestCertificateThumbprint=<thumbprint>` 传入，或设置环境变量
+> `IWORKHELPER_MANIFEST_CERT_THUMBPRINT`（工程文件会在未传参时回退到该变量）。
+
 ```bash
 # 内网版
-MSBuild oWorkhelper.sln /p:Configuration="Release-Intranet" /p:Platform="Any CPU"
+MSBuild oWorkhelper.sln /p:Configuration="Release-Intranet" /p:Platform="Any CPU" /p:SignManifests=true /p:ManifestCertificateThumbprint=<thumbprint>
 
 # 外网版
-MSBuild oWorkhelper.sln /p:Configuration="Release-Internet" /p:Platform="Any CPU"
+MSBuild oWorkhelper.sln /p:Configuration="Release-Internet" /p:Platform="Any CPU" /p:SignManifests=true /p:ManifestCertificateThumbprint=<thumbprint>
 
-# OfflineTester（调试工具）
+# OfflineTester（调试工具，已加入解决方案，仅 Debug 配置参与构建）
+MSBuild oWorkhelper.sln /p:Configuration=Debug /p:Platform="Any CPU" /p:SignManifests=true /p:ManifestCertificateThumbprint=<thumbprint>
+# 或单独构建：
 MSBuild tools\OfflineTester\OfflineTester.vbproj /t:Build /p:Configuration=Debug /p:Platform=AnyCPU
 ```
 
@@ -139,7 +147,7 @@ VSTO 加载项通过 ClickOnce 发布或手动注册安装到 Outlook。加载�
 
 - Secret Key 使用 Windows DPAPI（CurrentUser 作用域）加密存储，不明文保存。
 - 日志和报告中不输出 AK、SK 或 Access Token。
-- 内网版在编译期禁用在线解析，运行时无任何外网请求。
+- 内网版通过运行时常量 `BuildFeatures.OnlineParserEnabled=False` 收口在线解析（fail-closed）：网络栈仍被编译进程序集，但不会发起任何外网请求。
 - `.gitignore` 已覆盖 `user.config`、`baidu-ocr.config.xml`、样例 PDF 等敏感文件。
 
 ## 命名规则与默认行为
@@ -170,7 +178,7 @@ VSTO 加载项通过 ClickOnce 发布或手动注册安装到 Outlook。加载�
 
 ## 版本号规则
 
-对外产品版本使用 Major.Minor.Patch，当前版本为 1.2.0。需要四段数值版本的 VSTO / Assembly 字段使用 1.2.0.0。详细规则见 [docs/RELEASE.md](docs/RELEASE.md)。
+对外产品版本使用 Major.Minor.Patch，当前版本为 1.2.1。需要四段数值版本的 VSTO / Assembly 字段使用 1.2.1.0。详细规则见 [docs/RELEASE.md](docs/RELEASE.md)。
 
 ## 文档入口
 

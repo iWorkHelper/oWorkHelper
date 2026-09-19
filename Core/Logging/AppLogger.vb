@@ -1,4 +1,5 @@
 Imports System.IO
+Imports System.Globalization
 Imports System.Text
 
 ''' <summary>
@@ -44,11 +45,19 @@ Public Module AppLogger
             SyncLock SyncRoot
                 If Not _initialized Then Initialize()
                 If String.IsNullOrEmpty(_logDirectory) Then Return "(日志目录不可用)"
-                Return Path.Combine(_logDirectory, DateTime.Now.ToString("yyyy-MM-dd") & ".log")
+                Return Path.Combine(_logDirectory, LogFileName(DateTime.Now) & ".log")
             End SyncLock
         Catch
             Return "(日志目录不可用)"
         End Try
+    End Function
+
+    ''' <summary>
+    ''' 日志文件名（不变式格式）。必须显式用 InvariantCulture：
+    ''' 在非公历区域（如 th-TH / ar-SA）下 "yyyy-MM-dd" 会按该区域历法渲染年份，产生意外文件名。
+    ''' </summary>
+    Private Function LogFileName(now As DateTime) As String
+        Return now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
     End Function
 
     Public Sub Info(message As String)
@@ -80,11 +89,12 @@ Public Module AppLogger
                     Return
                 End If
 
-                Dim fileName As String = DateTime.Now.ToString("yyyy-MM-dd") & ".log"
+                Dim fileName As String = LogFileName(DateTime.Now) & ".log"
                 Dim fullPath As String = Path.Combine(dir, fileName)
+                RollIfNeeded(fullPath, fileName)
 
                 Dim sb As New StringBuilder()
-                sb.Append(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"))
+                sb.Append(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture))
                 sb.Append(" [")
                 sb.Append(LevelText(level))
                 sb.Append("] ")
@@ -101,6 +111,42 @@ Public Module AppLogger
             ' 日志绝不影响主流程。
         End Try
     End Sub
+
+    ''' <summary>单个日志文件大小上限：超出后滚动，避免单日无限增长。</summary>
+    Private Const MaxLogBytes As Long = 5 * 1024 * 1024
+
+    ''' <summary>保留的滚动历史文件个数（.1 ... .N）。</summary>
+    Private Const MaxRolledFiles As Integer = 5
+
+    ''' <summary>
+    ''' 单文件超过上限时滚动为 name.log.1、name.log.2…，并只保留最近 MaxRolledFiles 个。
+    ''' 滚动失败不影响本次写入（继续追加到原文件）。
+    ''' </summary>
+    Private Sub RollIfNeeded(fullPath As String, baseName As String)
+        Try
+            If Not File.Exists(fullPath) Then Return
+            If New FileInfo(fullPath).Length < MaxLogBytes Then Return
+
+            Dim dir As String = Path.GetDirectoryName(fullPath)
+            For i As Integer = MaxRolledFiles - 1 To 1 Step -1
+                Dim src As String = RolledPath(dir, baseName, i)
+                Dim dst As String = RolledPath(dir, baseName, i + 1)
+                If File.Exists(src) Then
+                    If File.Exists(dst) Then File.Delete(dst)
+                    File.Move(src, dst)
+                End If
+            Next
+            Dim first As String = RolledPath(dir, baseName, 1)
+            If File.Exists(first) Then File.Delete(first)
+            File.Move(fullPath, first)
+        Catch
+            ' 滚动失败时继续追加写原文件。
+        End Try
+    End Sub
+
+    Private Function RolledPath(dir As String, baseName As String, index As Integer) As String
+        Return Path.Combine(dir, baseName & "." & index.ToString(CultureInfo.InvariantCulture))
+    End Function
 
     Private Function LevelText(level As LogLevel) As String
         Select Case level

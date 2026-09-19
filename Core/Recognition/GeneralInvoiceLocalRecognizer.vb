@@ -1,4 +1,5 @@
 Imports System.Collections.Generic
+Imports System.Globalization
 Imports System.Text.RegularExpressions
 
 ''' <summary>
@@ -177,7 +178,7 @@ Public Class GeneralInvoiceLocalRecognizer
                 AddCand(parse, InvoiceFieldNames.InvoiceNumber, m.Groups(1).Value, lines(i), i, "label-same-line",
                         GeneralInvoiceCandidateScorer.LabelProximityBonus(0) + GeneralInvoiceCandidateScorer.InvoiceNumberPlausibility(m.Groups(1).Value) _
                         + GeneralInvoiceCandidateScorer.LongNumberContextPenalty(c), "标签同行")
-            ElseIf c.EndsWith("发票号码") OrElse c = "发票号码" Then
+            ElseIf c.EndsWith("发票号码", StringComparison.Ordinal) OrElse c = "发票号码" Then
                 ' 号码可能在下一行
                 If i + 1 < lines.Count Then
                     Dim nx As Match = Regex.Match(Compact(lines(i + 1)), "^([0-9]{8,20})$")
@@ -401,16 +402,19 @@ Public Class GeneralInvoiceLocalRecognizer
         Try
             If inv.LineItems Is Nothing OrElse inv.LineItems.Count = 0 OrElse String.IsNullOrWhiteSpace(inv.TotalWithTax) Then Return
             Dim sumAmt As Double = 0, sumTax As Double = 0
+            ' 必须用 InvariantCulture：发票金额固定是 "1234.56" 形式，在 de-DE 等区域下
+            ' 用当前区域解析会把 "138.46" 读成 13846、"1,234.50" 直接解析失败。
             For Each li As InvoiceLineItem In inv.LineItems
                 Dim a As Double
-                If Double.TryParse(If(li.Amount, ""), a) Then sumAmt += a
+                If Double.TryParse(If(li.Amount, ""), NumberStyles.Float, CultureInfo.InvariantCulture, a) Then sumAmt += a
                 Dim t As Double
-                If Double.TryParse(If(li.TaxAmount, ""), t) Then sumTax += t
+                If Double.TryParse(If(li.TaxAmount, ""), NumberStyles.Float, CultureInfo.InvariantCulture, t) Then sumTax += t
             Next
             Dim total As Double
-            If Double.TryParse(inv.TotalWithTax, total) AndAlso (sumAmt + sumTax) > 0 Then
+            If Double.TryParse(inv.TotalWithTax, NumberStyles.Float, CultureInfo.InvariantCulture, total) AndAlso (sumAmt + sumTax) > 0 Then
                 If Math.Abs((sumAmt + sumTax) - total) > 0.05 Then
-                    parse.Notes.Add(String.Format("明细金额合计({0:F2})+税额({1:F2}) 与价税合计({2:F2}) 不一致（仅告警）。", sumAmt, sumTax, total))
+                    parse.Notes.Add(String.Format(CultureInfo.InvariantCulture,
+                                                  "明细金额合计({0:F2})+税额({1:F2}) 与价税合计({2:F2}) 不一致（仅告警）。", sumAmt, sumTax, total))
                 End If
             End If
         Catch

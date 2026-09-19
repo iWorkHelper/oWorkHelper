@@ -51,4 +51,6 @@ Public Enum AppErrorCode
     LogDirNotWritable = 31      ' 日志目录不可写
     ArchiveAlreadyRunning = 32  ' 已有归档任务在运行
     ArchiveFolderPathInvalid = 33 ' 归档目录路径非法
+    ArchivePathTooLong = 34     ' 归档完整路径可能超过 MAX_PATH
+    ArchiveDiskSpaceLow = 35    ' 归档磁盘可用空间不足
 End Enum

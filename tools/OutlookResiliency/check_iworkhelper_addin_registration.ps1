@@ -63,7 +63,7 @@ function Check-RegistryPath {
             Write-DiagnosisLine "Status: Found items:"
             foreach ($subItem in $subItems) {
                 $name = $subItem.PSChildName
-                if ($name -match "(iWorkHelper|iWorkhelper|ThisAddIn)") {
+                if ($name -match "(iWorkHelper|eWorkHelper|oWorkHelper|ThisAddIn)") {
                     Write-DiagnosisLine ""
                     Write-DiagnosisLine "  Item: $name"
 
@@ -127,7 +127,7 @@ function Check-ResiliencyStatus {
                 $lbItems = Get-ChildItem -Path "Registry::$lbPath" -ErrorAction SilentlyContinue
                 foreach ($item in $lbItems) {
                     $name = $item.PSChildName
-                    if ($name -match "(iWorkHelper|iWorkhelper|ThisAddIn)") {
+                    if ($name -match "(iWorkHelper|eWorkHelper|oWorkHelper|ThisAddIn)") {
                         $value = Get-ItemProperty -Path "Registry::$lbPath\$name" -Name "(Default)" -ErrorAction SilentlyContinue
                         Write-DiagnosisLine "  LoadBehavior - $name : $($value.'(Default)')"
                     }
@@ -140,7 +140,7 @@ function Check-ResiliencyStatus {
                 $diItems = Get-ItemProperty -Path "Registry::$diPath" -ErrorAction SilentlyContinue
                 $found = $false
                 foreach ($prop in $diItems.PSObject.Properties) {
-                    if ($prop.Value -match "(iWorkHelper|iWorkhelper|ThisAddIn)") {
+                    if ($prop.Value -match "(iWorkHelper|eWorkHelper|oWorkHelper|ThisAddIn)") {
                         Write-DiagnosisLine "  DisabledItems found: $($prop.Value)"
                         $found = $true
                     }
@@ -156,7 +156,7 @@ function Check-ResiliencyStatus {
                 $calItems = Get-ItemProperty -Path "Registry::$calPath" -ErrorAction SilentlyContinue
                 $found = $false
                 foreach ($prop in $calItems.PSObject.Properties) {
-                    if ($prop.Value -match "(iWorkHelper|iWorkhelper|ThisAddIn)") {
+                    if ($prop.Value -match "(iWorkHelper|eWorkHelper|oWorkHelper|ThisAddIn)") {
                         Write-DiagnosisLine "  CrashingAddinList found: $($prop.Value)"
                         $found = $true
                     }
@@ -230,15 +230,22 @@ try {
     Write-DiagnosisLine "PowerShell: $($PSVersionTable.PSVersion)"
 
     # Check HKCU
+    # The iWorkHelper installer writes Software\Microsoft\Office\<Host>\Addins\<AddinId>
+    # (no Office version segment), so both the version-agnostic and the Office 16.0 paths
+    # must be probed; otherwise a successful install looks like "not found".
     Write-DiagnosisHeader "User Registry (HKEY_CURRENT_USER)"
-    Check-RegistryPath "HKCU\Software\Microsoft\Office\16.0\Outlook\Addins" "HKCU Addins"
-    Check-RegistryPath "HKCU\Software\WOW6432Node\Microsoft\Office\16.0\Outlook\Addins" "HKCU WOW6432Node Addins"
+    Check-RegistryPath "HKCU\Software\Microsoft\Office\Outlook\Addins" "HKCU Addins (version-agnostic, written by iWorkHelper installer)"
+    Check-RegistryPath "HKCU\Software\WOW6432Node\Microsoft\Office\Outlook\Addins" "HKCU WOW6432Node Addins (version-agnostic, 32-bit view)"
+    Check-RegistryPath "HKCU\Software\Microsoft\Office\16.0\Outlook\Addins" "HKCU Addins (Office 16.0)"
+    Check-RegistryPath "HKCU\Software\WOW6432Node\Microsoft\Office\16.0\Outlook\Addins" "HKCU WOW6432Node Addins (Office 16.0, 32-bit view)"
     Check-ResiliencyStatus "HKCU"
 
     # Check HKLM
     Write-DiagnosisHeader "Machine Registry (HKEY_LOCAL_MACHINE)"
-    Check-RegistryPath "HKLM\Software\Microsoft\Office\16.0\Outlook\Addins" "HKLM Addins"
-    Check-RegistryPath "HKLM\Software\WOW6432Node\Microsoft\Office\16.0\Outlook\Addins" "HKLM WOW6432Node Addins"
+    Check-RegistryPath "HKLM\Software\Microsoft\Office\Outlook\Addins" "HKLM Addins (version-agnostic, written by iWorkHelper installer)"
+    Check-RegistryPath "HKLM\Software\WOW6432Node\Microsoft\Office\Outlook\Addins" "HKLM WOW6432Node Addins (version-agnostic, 32-bit view)"
+    Check-RegistryPath "HKLM\Software\Microsoft\Office\16.0\Outlook\Addins" "HKLM Addins (Office 16.0)"
+    Check-RegistryPath "HKLM\Software\WOW6432Node\Microsoft\Office\16.0\Outlook\Addins" "HKLM WOW6432Node Addins (Office 16.0, 32-bit view)"
     Check-ResiliencyStatus "HKLM"
 
     # Check versions
@@ -251,6 +258,9 @@ try {
     Write-DiagnosisLine "2. What is the LoadBehavior value (3=startup, 9=disabled, 16=on-demand)?"
     Write-DiagnosisLine "3. Are there multiple versions?"
     Write-DiagnosisLine "4. Is it in DisabledItems or CrashingAddinList?"
+    Write-DiagnosisLine "5. The iWorkHelper installer registers add-ins under Software\Microsoft\Office\<Host>\Addins"
+    Write-DiagnosisLine "   (no version segment) with key names 'oWorkhelper' / 'eWorkhelper'; Office 16.0 paths are"
+    Write-DiagnosisLine "   listed for reference only, so a match there is not required for a successful install."
     Write-DiagnosisLine ""
 
     if ($OutputFile) {

@@ -28,10 +28,10 @@ oWorkHelper 是 iWorkHelper Organization 旗下的 Outlook VSTO 加载项，基�
 
 ### Core 模块
 
-#### Core/Common/ (通用基础设施，9 个文件)
+#### Core/Common/ (通用基础设施，12 个文件)
 
-- **Result.vb** — 泛型结果类型，封装操作成功/失败状态及错误信息
-- **PathHelper.vb** — 路径处理辅助方法
+- **Result.vb** — 统一结果类型（`ProcessStatus` + 消息），封装操作成功/失败状态及错误信息
+- **PathHelper.vb** — 路径处理辅助方法（应用数据目录、日志目录、temp 目录、唯一文件名）
 - **FileNameSanitizer.vb** — 文件名清理，移除非法字符
 - **PrivacySafeFormatter.vb** — 隐私安全格式化器，对邮件主题和附件名进行脱敏处理
 - **ExceptionFormatter.vb** — 异常格式化，生成结构化异常信息
@@ -39,7 +39,8 @@ oWorkHelper 是 iWorkHelper Organization 旗下的 Outlook VSTO 加载项，基�
 - **AppErrorCode.vb** — 应用错误代码枚举，标识各类错误场景
 - **AppError.vb** — 应用错误类，结合错误代码与严重级别
 - **UserFriendlyMessageProvider.vb** — 面向用户的友好错误消息生成器
-- **BuildFeatures.vb** — 编译特性开关，控制内外网版本差异
+- **BuildFeatures.vb** — 编译特性开关（`#If INTERNET_BUILD` → 运行时常量），控制内外网版本差异
+- **ComRelease.vb** — COM 对象统一释放工具（`Marshal.ReleaseComObject` 包装）
 - **ExplorerFolderService.vb** — 归档后打开或激活归档目录，使用 Shell.Application.Windows() 枚举已有窗口
 
 #### Core/Logging/ (日志，1 个文件)
@@ -79,14 +80,22 @@ oWorkHelper 是 iWorkHelper Organization 旗下的 Outlook VSTO 加载项，基�
 
 识别管线，负责从 PDF 文本或 OCR 结果中提取发票关键信息：
 
-- 识别管线协调器，按照本地识别 → 百度 OCR 回退的顺序执行
-- 本地文本识别器，基于 PdfPig 提取的文本进行正则匹配
-- 滴滴行程发票识别器，专门处理滴滴出行电子发票
-- 常规发票识别器，使用候选评分机制识别一般增值税发票
-- 候选评分器，对多个候选字段值评分取最优
-- 关键字段评估器，判断识别结果是否满足命名所需的最低字段要求
-- 识别结果合并器，将多来源识别结果整合
-- 百度 OCR 识别器，调用百度多票识别 API 进行在线识别
+- **RecognitionPipeline.vb** — 识别调度器（本地优先 / 在线兜底，标记识别来源）
+- **LocalTextInvoiceRecognizer.vb** — 本地文本识别器；**滴滴/行程单逻辑就在此类内**（`DetectDocumentType` + 行程单表头/表格解析），不存在独立的“滴滴行程发票识别器”
+- **GeneralInvoiceLocalRecognizer.vb** — 常规增值税发票识别器（候选评分 + 分区解析 + 商品明细）
+- **GeneralInvoiceCandidateScorer.vb** — 字段候选评分器
+- **GeneralInvoiceFieldCandidate.vb** — 字段候选数据模型
+- **GeneralInvoiceLineItemParser.vb** — 商品明细行解析器
+- **GeneralInvoiceParseResult.vb** — 常规发票解析中间结果
+- **KeyFieldEvaluator.vb** — 关键字段 / 命名核心字段完整度评估
+- **InvoiceRecognitionMerger.vb** — 多来源识别结果合并器
+- **BaiduOcrInvoiceRecognizer.vb** — 百度 OCR 识别器，调用百度多票识别 API
+- **IInvoiceRecognizer.vb** — 识别器接口
+- **InvoiceDocumentType.vb** — 票据类型枚举
+- **InvoiceField.vb** — 扁平字段模型
+- **InvoiceRecognitionResult.vb** — 识别结果与识别状态
+- **RecognitionContext.vb** — 识别上下文（PDF 路径、抽取文本）
+- **LocalTextNormalizer.vb** — 本地解析前的文本归一化
 
 #### Core/Ocr/Baidu/ (百度 OCR 集成，7 个文件)
 
@@ -98,19 +107,18 @@ oWorkHelper 是 iWorkHelper Organization 旗下的 Outlook VSTO 加载项，基�
 - **BaiduInvoiceTypeMapper.vb** — 百度发票类型到内部类型的映射
 - **BaiduInvoiceFieldMapper.vb** — 百度发票字段到内部字段的映射
 
-#### Core/Mail/ (邮件处理，5 个文件)
+#### Core/Mail/ (邮件处理，4 个文件)
 
 - **MailAttachmentReader.vb** — 邮件附件读取器，从 Outlook MailItem 中提取 PDF 附件
 - **MailAttachmentItem.vb** — 邮件附件数据模型
 - **MailPdfGroup.vb** — 单封邮件的 PDF 分组
 - **MailPdfGroupingResult.vb** — 邮件 PDF 分组结果
-- **MailReadResult.vb** — 邮件读取结果
 
 #### Core/Archive/ (归档处理，8 个文件)
 
-- **NamingTemplates.vb** — 命名模板定义（滴滴、常规发票、未识别各有对应模板）
-- **NamingTemplateEngine.vb** — 模板引擎，将占位符替换为实际识别值
-- **ArchiveNamingRule.vb** — 归档命名规则（滴滴发票、常规发票）
+- **NamingTemplates.vb** — 命名模板配置：**只使用统一模板 `UnifiedTemplate`**（旧的三套模板 Invoice/Trip/Unknown 属性已标记 `Obsolete`，仅为兼容旧配置保留）
+- **NamingTemplateEngine.vb** — 模板引擎，将占位符替换为实际识别值（按字段充分性决定是否回退）
+- **ArchiveNamingRule.vb** — 统一归档命名规则 + 内置未识别 fallback
 - **UnknownPdfNamingRule.vb** — 未识别 PDF 的命名规则
 - **ArchivePlanner.vb** — 归档计划器，根据识别结果生成归档计划
 - **ArchiveExecutor.vb** — 归档执行器，按计划将文件复制到目标目录
@@ -143,8 +151,11 @@ RunGuard 获取运行锁（Interlocked 原子操作，防止重复执行）
     ▼
 预检检查（Preflight Check）
   - 验证是否选中了邮件
-  - 验证归档目标目录是否存在
-  - 验证 OCR 配置是否完整（仅外网版本）
+  - 验证归档目标目录：目录不存在则**自动创建**，再以“写入并删除探针文件”验证写权限
+  - 验证临时目录 / 日志目录可写（日志目录不可写仅告警，不阻断）
+  - 验证命名模板非空、OCR 配置是否完整（仅提示）
+  - 校验完整路径长度（按最长可能产出名对比 259 上限，超限仅告警）
+  - 校验归档磁盘可用空间（低于 100 MB 仅告警，不阻断）
     │
     ▼
 BatchArchiveWorkflow 启动批量处理
@@ -161,8 +172,12 @@ BatchArchiveWorkflow 启动批量处理
     │
     ├─ 3. 识别（Recognition）
     │     │
-    │     ├─ 滴滴发票：先合并同一邮件内多个 PDF，再整体识别
-    │     │   └─ PdfMergeService 合并 → 识别管线
+    │     ├─ 先对每个 PDF **逐个独立识别**（识别管线）
+    │     │
+    │     ├─ 滴滴发票：全部 PDF 识别完成后，先合并**识别结果**
+    │     │   （InvoiceRecognitionMerger），再合并 PDF 文件
+    │     │   （PdfMergeService，顺序为发票在前、行程单在后），随后统一命名
+    │     │   ——只合并滴滴成员 PDF；同封邮件内的非滴滴 PDF 仍各自独立归档
     │     │
     │     └─ 常规发票：逐个 PDF 独立识别
     │         └─ 识别管线
@@ -173,7 +188,7 @@ BatchArchiveWorkflow 启动批量处理
     │        - 滴滴：提取乘车日期、金额、出发地、到达地
     │        - 常规：提取开票日期、金额、销售方名称
     │     ③ 关键字段评估：判断本地识别结果是否充分
-    │     ④ 若不充分，回退到百度 OCR（仅外网版本可用）
+    │     ④ 若不充分，按策略回退到百度 OCR（外网版运行时启用；`PreferLocalParse=False` 时也会调用）
     │     ⑤ 合并多来源识别结果
     │
     ├─ 4. 命名（Naming）
@@ -191,24 +206,36 @@ BatchArchiveWorkflow 启动批量处理
           RunGuard 释放运行锁
 ```
 
+### 执行线程与取消（现状）
+
+批量归档在 Outlook 的 **UI 线程上同步执行**：`MainRibbon.ButtonArchive_Click` 直接调用
+`BatchArchiveWorkflow.Run`，中途通过 `Application.DoEvents()` 泵消息，使 `ProgressForm` 能重绘并让“取消”按钮可点击。
+取消采用**协作式轮询**：工作流在“邮件边界”和“每个 PDF 之前”检查 `IArchiveProgressReporter.IsCancellationRequested`
+（由 `ProgressForm.CancelRequested` 提供），命中后停止处理剩余邮件并保留已归档文件，不做强制中断。
+因此处理大批量邮件时 Outlook UI 仍会被阻塞（批量工作线程化见 REVIEW_TRACKING.md O-02）。
+
 ## 5. 内外网版本差异
 
 项目通过 `BuildFeatures.vb` 作为唯一的编译特性开关，控制内外网版本差异。
 
 ### 编译配置
 
-项目定义了 4 种构建配置：
+项目定义了 3 种构建配置（`oWorkhelper.vbproj`）：
 
 | 配置名 | 编译常量 | 用途 |
 |--------|----------|------|
-| Debug | 无 | 开发调试，默认离线模式 |
-| Release | 无 | 通用发布，默认离线模式 |
-| Release-Intranet | INTRANET_BUILD | 内网发布版本 |
-| Release-Internet | INTERNET_BUILD | 外网发布版本，启用百度 OCR |
+| Debug | `VSTO40,UseOfficeInterop`（无版本常量） | 开发调试，默认离线模式 |
+| Release-Intranet | `VSTO40,UseOfficeInterop,INTRANET_BUILD` | 内网发布版本 |
+| Release-Internet | `VSTO40,UseOfficeInterop,INTERNET_BUILD` | 外网发布版本，运行时启用百度 OCR |
 
 ### 安全默认原则
 
-未定义任何编译常量时，项目默认运行在离线模式下，不会尝试任何网络请求。只有显式定义 `INTERNET_BUILD` 编译常量时，百度 OCR 在线识别功能才会被启用。
+`BuildFeatures.vb` 通过 `#If INTERNET_BUILD` 条件编译产生的是**运行时常量** `OnlineParserEnabled`
+（未定义 `INTERNET_BUILD` 的构建为 `False`）。未定义该常量时，`BaiduOcrInvoiceRecognizer.IsAvailable()`
+返回 `False`，`Recognize()` 直接返回 `ConfigurationMissing`，**不会发起任何网络请求（fail-closed）**。
+
+需要明确的是：这**不是“编译期禁止在线 OCR”**。网络栈（`Core/Ocr/Baidu/*` 与百度 OCR 识别器）仍然被编译进内网版本，
+只是被运行时常量收口。如需真正的编译期隔离，可评估把网络相关类包进 `#If INTERNET_BUILD`（尚未实施，见 REVIEW_TRACKING.md O-47）。
 
 ### 条件编译控制
 
@@ -235,7 +262,10 @@ BatchArchiveWorkflow 启动批量处理
 
 ### 运行锁
 
-RunGuard 使用 `Interlocked.CompareExchange` 原子操作实现运行锁，确保同一时刻只有一个批量处理流程在运行。锁的获取和释放均为原子操作，无需传统的锁对象，避免死锁风险。
+RunGuard 使用 `Interlocked.CompareExchange` 原子操作实现运行锁，确保同一时刻只有一个批量处理流程在运行。
+原子性只覆盖**锁字**（`_state`）与持有者代号（`_generation`）；批次标识、线程 ID、获取时间这些
+**持有者诊断信息是普通字段赋值，并非原子**，仅用于日志定位（`DescribeHolder`），不参与并发判定。
+释放只接受当前持有者代号，过期/伪造 token 的释放请求为 no-op。
 
 ### 逐项故障隔离
 
@@ -245,25 +275,35 @@ RunGuard 使用 `Interlocked.CompareExchange` 原子操作实现运行锁，确�
 
 ### 密钥保护
 
-百度 OCR 的 API Key 和 Secret Key 通过 Windows DPAPI (Data Protection API) 加密存储：
+**只有 Secret Key（SK）使用 Windows DPAPI 加密**，API Key（AK）按普通设置项明文保存：
 
-- **加密范围**：使用 CurrentUser 范围，仅当前 Windows 用户可解密
-- **存储格式**：加密后的密文以 `DPAPI:` 前缀存储在 XML 配置文件中，前缀用于区分明文与密文
-- **SecretProtector** 负责加密和解密操作
-- **ProtectedSettingsProvider** 封装配置读写，自动处理加密/解密透明转换
+- **加密范围**：DPAPI CurrentUser 范围，仅当前 Windows 用户可解密
+- **存储格式**：密文带 `DPAPI:` 前缀，用于区分明文与密文
+- **主要存储位置**：`My.Settings.BaiduSecretKey` → `user.config`（User scope）；
+  `%AppData%\iWorkHelper\baidu-ocr.config.xml`（`BaiduXmlConfigStore`）是**兼容用的外部回退**，
+  `OcrConfigProvider` 读取时以 `My.Settings` 优先
+- **SecretProtector** 负责加密和解密操作；**ProtectedSettingsProvider** 封装读写与透明加解密
+- 加密失败时**拒绝写入**（不落明文），并在 `Save()` 后通过 `VerifyPersisted()` 断言存储值确为密文
 
 ### 明文自动迁移
 
-打开设置窗体时，若检测到配置文件中存在未加密的明文密钥（无 `DPAPI:` 前缀），系统自动将其加密后重新保存，实现透明的安全迁移。
+检测到明文遗留 Secret Key（无 `DPAPI:` 前缀）时自动加密回写。触发点有两处：
+
+1. 打开设置窗体时（`SettingsForm`）；
+2. **每次点击“归档”时**（`MainRibbon` 在预检查之前调用 `MigratePlaintextIfNeeded`），
+   以免用户从不打开设置就直接归档而始终残留明文。
 
 ### 日志脱敏
 
-- API Key、Secret Key、Access Token 等敏感信息不会出现在日志中
+- AK/SK 会以**部分掩码**形式写入日志：`BaiduOcrOptions.ToSafeSummary()` → `MaskSecret()`（保留前 2、后 2 字符），
+  完整密钥与 Access Token 不写日志
 - **PrivacySafeFormatter** 对邮件主题和附件名称进行脱敏处理，防止个人信息泄露到日志文件
 
 ## 8. 百度 OCR 集成
 
-百度 OCR 集成仅在外网版本（`INTERNET_BUILD`）中可用，使用百度多票识别 API（`multiple_invoice`）实现在线发票识别。
+百度 OCR 集成使用百度多票识别 API（`multiple_invoice`）实现在线发票识别。
+网络栈被编译进所有构建配置，是否可用由运行时常量 `BuildFeatures.OnlineParserEnabled` 收口
+（仅 `INTERNET_BUILD` 版本为 `True`，见第 5 节）。
 
 ### 调用流程
 
@@ -295,10 +335,12 @@ BaiduInvoiceFieldMapper 映射发票字段
 
 ### 回退策略
 
-百度 OCR 作为本地识别的补充手段，仅在以下条件同时满足时触发：
+百度 OCR 仅在**外网版本**（`INTERNET_BUILD`）且 `BaiduOcrOptions.IsConfigured()` 为真时才有机会调用；
+是否真的调用由 `RecognitionPipeline` 决定（`PreferLocalParse` / `AutoFallbackToOcr` / 疑似图片型）：
 
-1. 当前为外网版本（`INTERNET_BUILD` 编译常量已定义）
-2. 本地文本识别结果不充分（关键字段缺失，无法满足命名模板要求）
-3. 百度 OCR 配置完整且有效（API Key、Secret Key 已配置）
+1. `PreferLocalParse=True` 且本地命名核心字段充分 → 直接采用本地结果，不调用 OCR；
+2. `PreferLocalParse=False`（设置里选择“在线优先”）→ **即使本地字段充分也会调用 OCR**；
+3. `AutoFallbackToOcr=True` 或文本疑似图片型 → 本地不充分时回退 OCR；
+4. OCR 不可用或失败时，本地有字段则返回本地部分成功，否则返回需要 OCR 的提示。
 
-本地识别结果充分时，不会发起百度 OCR 请求，避免不必要的网络调用和 API 配额消耗。
+因此“本地充分就一定不发网络请求”只在 `PreferLocalParse=True` 时成立。

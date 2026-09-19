@@ -17,17 +17,14 @@ Public Module PathHelper
     End Function
 
     ''' <summary>
-    ''' 日志目录。若归档目录可用则优先使用归档目录下的 logs，否则用 AppData\iWorkHelper\logs。
+    ''' 日志目录：固定为 %AppData%\iWorkHelper\logs（O-45）。
+    ''' 不再优先使用“归档目录\logs”：归档目录可能是共享/网络目录，多个用户会争用同一个
+    ''' yyyy-MM-dd.log 文件名，并发追加会静默失败。日志文件名与轮转由 AppLogger 负责，
+    ''' 这里只保证给出“每个 Windows 用户独立”的目录。
     ''' </summary>
+    ''' <param name="archiveFolder">保留参数仅为兼容既有调用点，不再参与日志目录选择。</param>
     Public Function GetLogDirectory(Optional archiveFolder As String = Nothing) As String
-        Dim baseDir As String
-        If Not String.IsNullOrWhiteSpace(archiveFolder) AndAlso SafeDirectoryExists(archiveFolder) Then
-            baseDir = archiveFolder
-        Else
-            baseDir = GetAppDataRoot()
-        End If
-
-        Dim logDir As String = Path.Combine(baseDir, "logs")
+        Dim logDir As String = Path.Combine(GetAppDataRoot(), "logs")
         EnsureDirectory(logDir)
         Return logDir
     End Function
@@ -53,14 +50,6 @@ Public Module PathHelper
                 Directory.CreateDirectory(dirPath)
             End If
             Return True
-        Catch
-            Return False
-        End Try
-    End Function
-
-    Private Function SafeDirectoryExists(dirPath As String) As Boolean
-        Try
-            Return Directory.Exists(dirPath)
         Catch
             Return False
         End Try

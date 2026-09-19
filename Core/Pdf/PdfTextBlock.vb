@@ -9,14 +9,8 @@ Public Class PdfTextBlock
         Lines = New List(Of PdfTextLine)()
     End Sub
 
-    ''' <summary>区块角色（header / parties / lineItems / totals / other）。</summary>
-    Public Property Role As String
     ''' <summary>区块内的逻辑行（按从上到下顺序）。</summary>
     Public Property Lines As List(Of PdfTextLine)
-    ''' <summary>起始行在整份文档逻辑行列表中的下标。</summary>
-    Public Property StartIndex As Integer
-    ''' <summary>结束行下标（不含）。</summary>
-    Public Property EndIndex As Integer
 
     Public ReadOnly Property IsEmpty As Boolean
         Get

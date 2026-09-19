@@ -26,6 +26,12 @@ Public Module PdfTextLayoutExtractor
                         Return a.X.CompareTo(b.X)
                     End Function)
 
+        ' 聚类锚点 = 该行**首个词的 Y**，并保持不变（O-40）。
+        ' 与锚点比较可保证“行内 Y 跨度恒 <= LineYTolerance”，不存在逐词漂移/链式合并：
+        ' 词按 Y 降序处理，故已有锚点必然 >= 当前词 Y，命中条件等价于 锚点-词Y <= 容差。
+        ' 注意：不要改成“运行均值/重定中心”——那会真正引入评审描述的链式合并
+        ' （如 100/104/106/107/108 会因均值不断下移而全部并入同一行）。
+        ' 该不变量已由 OfflineTester 自测 [9] 断言守护。
         For Each w As PdfTextWord In sorted
             Dim target As PdfTextLine = Nothing
             For Each ln As PdfTextLine In lines

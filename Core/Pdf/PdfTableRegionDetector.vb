@@ -14,7 +14,7 @@ Public Module PdfTableRegionDetector
 
     ''' <summary>检测商品明细区。</summary>
     Public Function DetectLineItemRegion(lines As List(Of PdfTextLine)) As PdfTextBlock
-        Dim block As New PdfTextBlock With {.Role = "lineItems"}
+        Dim block As New PdfTextBlock()
         If lines Is Nothing OrElse lines.Count = 0 Then Return block
 
         Dim headerIdx As Integer = -1
@@ -32,14 +32,12 @@ Public Module PdfTableRegionDetector
         Dim endIdx As Integer = lines.Count
         For i As Integer = headerIdx + 1 To lines.Count - 1
             Dim c As String = Compact(lines(i))
-            If c.Contains("合计") OrElse c.Contains("价税合计") OrElse c.StartsWith("¥") OrElse c.StartsWith("￥") Then
+            If c.Contains("合计") OrElse c.StartsWith("¥", StringComparison.Ordinal) OrElse c.StartsWith("￥", StringComparison.Ordinal) Then
                 endIdx = i
                 Exit For
             End If
         Next
 
-        block.StartIndex = headerIdx + 1
-        block.EndIndex = endIdx
         For i As Integer = headerIdx + 1 To endIdx - 1
             block.Lines.Add(lines(i))
         Next

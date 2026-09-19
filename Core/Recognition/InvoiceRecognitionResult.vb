@@ -84,13 +84,6 @@ Public Class InvoiceRecognitionResult
         }
     End Function
 
-    Public Shared Function ConfigMissing(message As String) As InvoiceRecognitionResult
-        Return New InvoiceRecognitionResult With {
-            .Status = RecognitionStatus.ConfigurationMissing,
-            .Message = message
-        }
-    End Function
-
     Public Shared Function Failure(message As String) As InvoiceRecognitionResult
         Return New InvoiceRecognitionResult With {
             .Status = RecognitionStatus.Failure,

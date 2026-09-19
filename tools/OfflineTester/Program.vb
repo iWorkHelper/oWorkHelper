@@ -324,7 +324,11 @@ Module OfflineTesterProgram
         o.ApiKey = ak
         o.PreferLocalParse = True
         o.AutoFallbackToOcr = True
-        BaiduXmlConfigStore.Save(o, sk)
+        If Not BaiduXmlConfigStore.Save(o, sk) Then
+            Console.WriteLine("保存失败：Secret Key 无法 DPAPI 加密，已拒绝明文落盘。")
+            Environment.ExitCode = 1
+            Return
+        End If
         Console.WriteLine("已将百度 OCR 配置安全写入本机：" & BaiduXmlConfigStore.GetPath())
         Console.WriteLine("  Enabled=true, ApiKey=" & BaiduOcrOptions.MaskSecret(ak) & ", SecretKey=已 DPAPI 加密（DPAPI: 前缀）")
         Console.WriteLine("  提示：该文件已被 .gitignore 忽略，切勿提交。")
@@ -886,7 +890,7 @@ Friend Class CliOptions
                         o.SimulateError = "list"
                     End If
                 Case Else
-                    If a.StartsWith("-") Then
+                    If a.StartsWith("-", StringComparison.Ordinal) Then
                         o.ErrorMessage = "未知选项: " & a
                     Else
                         o.Positionals.Add(a)
@@ -921,6 +925,7 @@ Friend Module SelfTestRunner
         TestClassification()
         TestArchiveRunGuard()
         TestGeneralInvoiceLocal()
+        TestLayoutClustering()
         Console.WriteLine("")
         Console.WriteLine(String.Format("自测结果：通过 {0}，失败 {1}", _pass, _fail))
         If _fail > 0 Then Environment.ExitCode = 1
@@ -958,7 +963,7 @@ Friend Module SelfTestRunner
             inv.Trips.Add(New InvoiceTripInfo With {.RowIndex = 1, .DepartureTime = "2026-05-18", .StartLocation = "上海虹桥站", .EndLocation = "上海市徐汇区", .TripAmount = "138.46"})
             Dim p0 As ArchiveNamePlan = New ArchiveNamingRule().BuildPlan(inv, InvoiceDocumentType.VatInvoice, "a.pdf", "20260101000000")
             Console.WriteLine("    默认模板命名: " & p0.FileName)
-            Check("乘车日期优先行程出发日期(20260518)", p0.FileName.StartsWith("20260518_"))
+            Check("乘车日期优先行程出发日期(20260518)", p0.FileName.StartsWith("20260518_", StringComparison.Ordinal))
             Check("金额取行程金额(138.46)", p0.FileName.Contains("138.46"))
             Check("含出发地点(起点)", p0.FileName.Contains("上海虹桥站"))
             Check("含到达地点(终点)", p0.FileName.Contains("上海市徐汇区"))
@@ -991,6 +996,13 @@ Friend Module SelfTestRunner
             Check("fallback 含‘未识别票据’", p4.FileName.Contains("未识别票据"))
             Check("fallback 用邮件主题", p4.FileName.Contains("示例邮件主题"))
             Console.WriteLine("    fallback 命名: " & p4.FileName)
+
+            ' 标点模板：占位符全空但渲染结果非空白（如「（）」）→ 仍须回退，不得产出垃圾文件名（O-14）
+            Dim t5 As New NamingTemplates() With {.UnifiedTemplate = "{金额}（{出发地点}）"}
+            Dim p5 As ArchiveNamePlan = New ArchiveNamingRule(t5).BuildPlan(emptyInv, InvoiceDocumentType.Unknown, "att.pdf", "20260101", "示例邮件主题", 2)
+            Check("标点模板字段全空仍触发 fallback", p5.FallbackTriggered)
+            Check("标点模板不产出垃圾文件名", Not p5.FileName.Contains("（）"))
+            Console.WriteLine("    命名(标点模板/字段全空): " & p5.FileName)
         Catch ex As Exception
             Fail("命名异常: " & ex.Message)
         End Try
@@ -1336,8 +1348,59 @@ Friend Module SelfTestRunner
                 Check("续行金额补齐=500.00", r5.Invoice.LineItems(0).Amount = "500.00")
             End If
             Check("换行样例金额=价税合计530.00", r5.Invoice.TotalWithTax = "530.00")
+
+            ' —— 用例6：仅销售方名称/备注提及“滴滴、行程单、网约车”→ 不得误判为行程单（O-38）——
+            Dim notRide As String = String.Join(vbLf, New String() {
+                "增值税电子普通发票",
+                "发票号码：25317000000077778888",
+                "开票日期：2026年09月01日",
+                "销售方名称：滴滴出行科技有限公司",
+                "价税合计（小写）¥66.00",
+                "备注：行程单见附件（网约车报销）"})
+            Dim r6 As InvoiceRecognitionResult = New LocalTextInvoiceRecognizer().Recognize(
+                New RecognitionContext With {.OriginalFileName = "notride.pdf", .ExtractedText = notRide})
+            Check("仅备注/销售方提及滴滴→不误判行程单", r6.DocumentType = InvoiceDocumentType.VatInvoice)
+            Check("该发票仍解析出销售方", Not String.IsNullOrEmpty(r6.Invoice.SellerName))
+            Console.WriteLine("    非行程单样例类型=" & r6.DocumentType & "，销售方=" &
+                              If(String.IsNullOrWhiteSpace(r6.Invoice.SellerName), "-", r6.Invoice.SellerName))
         Catch ex As Exception
             Fail("常规发票识别测试异常: " & ex.Message)
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' [9] 坐标行聚类不变量（O-40）：行内 Y 跨度永远不超过容差，不存在链式漂移。
+    ''' </summary>
+    Private Sub TestLayoutClustering()
+        Console.WriteLine("[9] 坐标行聚类（行内 Y 跨度 <= 容差，不链式合并）")
+        Try
+            ' 9 单位间距（远大于容差 4）必须落到不同的行
+            Dim spaced As New List(Of PdfTextWord)()
+            For i As Integer = 0 To 2
+                spaced.Add(New PdfTextWord With {.Text = "W" & i, .X = i * 10, .Right = i * 10 + 5, .Y = 100 - i * 9})
+            Next
+            Dim linesSpaced As List(Of PdfTextLine) = PdfTextLayoutExtractor.ClusterIntoLines(spaced, 1)
+            Check("9 单位间距不合并（3 行）", linesSpaced.Count = 3)
+
+            ' 3 单位间距的连续链：任何一行的 Y 跨度都不得超过容差（超过即为链式漂移）
+            Dim chain As New List(Of PdfTextWord)()
+            For i As Integer = 0 To 5
+                chain.Add(New PdfTextWord With {.Text = "C" & i, .X = i * 10, .Right = i * 10 + 5, .Y = 100 - i * 3})
+            Next
+            Dim linesChain As List(Of PdfTextLine) = PdfTextLayoutExtractor.ClusterIntoLines(chain, 1)
+            Dim maxSpread As Double = 0
+            For Each ln As PdfTextLine In linesChain
+                For Each w As PdfTextWord In ln.Words
+                    Dim d As Double = Math.Abs(ln.Y - w.Y)
+                    If d > maxSpread Then maxSpread = d
+                Next
+            Next
+            Check("链式词不漂移（行内跨度<=容差）", maxSpread <= PdfTextLayoutExtractor.LineYTolerance)
+            Check("链式词被拆成多行（未整体合并）", linesChain.Count >= 2)
+            Console.WriteLine("    9 单位间距行数=" & linesSpaced.Count & "；3 单位链行数=" & linesChain.Count &
+                              "；最大行内跨度=" & maxSpread.ToString(System.Globalization.CultureInfo.InvariantCulture))
+        Catch ex As Exception
+            Fail("行聚类测试异常: " & ex.Message)
         End Try
     End Sub
 

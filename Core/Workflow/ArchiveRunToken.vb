@@ -10,16 +10,20 @@
 Public NotInheritable Class ArchiveRunToken
     Implements IDisposable
 
+    ''' <summary>获取时分配的持有者代号；只有它才能释放对应的运行锁。</summary>
+    Private ReadOnly _ownerId As Long
+
     Private _disposed As Boolean = False
 
-    ''' <summary>只允许 <see cref="ArchiveRunGuard"/> 创建。</summary>
-    Friend Sub New()
+    ''' <summary>只允许 <see cref="ArchiveRunGuard"/> 创建（需携带持有者代号）。</summary>
+    Friend Sub New(ownerId As Long)
+        _ownerId = ownerId
     End Sub
 
     Public Sub Dispose() Implements IDisposable.Dispose
         If _disposed Then Return
         _disposed = True
-        ArchiveRunGuard.Release()
+        ArchiveRunGuard.Release(_ownerId)
     End Sub
 
 End Class

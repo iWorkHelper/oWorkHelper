@@ -50,9 +50,7 @@ Public Module StartupPerformanceTracker
     Public Sub LogStageDuration(stageName As String)
         Try
             Dim elapsed = EndStage(stageName)
-            If elapsed >= 0 Then
-                AppLogger.Debug(stageName & " 耗时：" & elapsed & "ms")
-            End If
+            AppLogger.Debug(stageName & " 耗时：" & elapsed & "ms")
         Catch
         End Try
     End Sub

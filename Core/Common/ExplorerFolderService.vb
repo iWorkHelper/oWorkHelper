@@ -118,6 +118,9 @@ Public Module ExplorerFolderService
         explorerHwnd = IntPtr.Zero
         Dim shellApp As Object = Nothing
         Dim windows As Object = Nothing
+        ' O-27/O-33：窗口对象先复制到托管列表，枚举期间不释放元素；
+        ' 枚举结束后（含命中提前返回）再统一释放各窗口 RCW。
+        Dim windowItems As New List(Of Object)()
         Try
             Dim shellType As Type = Type.GetTypeFromProgID("Shell.Application")
             If shellType Is Nothing Then
@@ -128,12 +131,14 @@ Public Module ExplorerFolderService
             windows = shellApp.Windows()
             If windows Is Nothing Then Return False
 
-            AppLogger.Debug("开始枚举 Shell 窗口（For Each）；目标规范化路径=" & targetNorm)
+            AppLogger.Debug("开始枚举 Shell 窗口（快照后遍历）；目标规范化路径=" & targetNorm)
+
+            windowItems = SnapshotComCollection(windows)
 
             Dim idx As Integer = -1
-            ' 注意：ShellWindows 集合必须用 For Each 遍历；对其做整数索引（Item(i)）在
+            ' 注意：ShellWindows 集合必须整体枚举后才能安全释放元素；对其做整数索引（Item(i)）在
             ' 后期绑定下会取不到窗口对象，曾导致“已打开仍新开窗口”。
-            For Each w As Object In windows
+            For Each w As Object In windowItems
                 idx += 1
                 Try
                     If w Is Nothing Then Continue For
@@ -169,8 +174,6 @@ Public Module ExplorerFolderService
                     End If
                 Catch exItem As Exception
                     AppLogger.Debug("  枚举单个窗口异常（跳过该窗口）：" & exItem.Message)
-                Finally
-                    ReleaseCom(w)
                 End Try
             Next
             Return False
@@ -178,10 +181,49 @@ Public Module ExplorerFolderService
             AppLogger.Warn("枚举资源管理器窗口失败（将改为新开）：" & ex.Message)
             Return False
         Finally
+            ReleaseComAll(windowItems)
             ReleaseCom(windows)
             ReleaseCom(shellApp)
         End Try
     End Function
+
+    ''' <summary>
+    ''' 把 COM 集合（IEnumVARIANT）安全复制为托管列表：
+    '''  - 枚举期间**不释放**元素 RCW，避免边枚举边释放导致集合失效；
+    '''  - 显式持有并释放枚举器 RCW（O-33），失败时回退到 For Each。
+    ''' </summary>
+    Private Function SnapshotComCollection(collection As Object) As List(Of Object)
+        Dim items As New List(Of Object)()
+        If collection Is Nothing Then Return items
+
+        Dim enumerator As System.Collections.IEnumerator = Nothing
+        Try
+            ' .NET 为实现了 IEnumVARIANT 的 COM 集合提供 IEnumerable 适配器。
+            enumerator = DirectCast(collection, System.Collections.IEnumerable).GetEnumerator()
+            While enumerator.MoveNext()
+                items.Add(enumerator.Current)
+            End While
+            Return items
+        Catch ex As Exception
+            ' 回退：常规 For Each（同样保证枚举期间不释放元素）。
+            AppLogger.Debug("COM 集合显式枚举失败，回退 For Each：" & ex.Message)
+            items.Clear()
+            For Each w As Object In collection
+                items.Add(w)
+            Next
+            Return items
+        Finally
+            ReleaseCom(enumerator)
+        End Try
+    End Function
+
+    ''' <summary>释放列表中的全部 COM 对象（仅在枚举结束后调用）。</summary>
+    Private Sub ReleaseComAll(items As List(Of Object))
+        If items Is Nothing Then Return
+        For Each o As Object In items
+            ReleaseCom(o)
+        Next
+    End Sub
 
     ''' <summary>
     ''' 判断是否为文件资源管理器窗口（排除 IE）。
@@ -367,7 +409,9 @@ Public Module ExplorerFolderService
     ''' <summary>新开一个资源管理器窗口打开指定目录。</summary>
     Private Sub OpenNewExplorerWindow(folderPath As String)
         Try
-            System.Diagnostics.Process.Start("explorer.exe", """" & folderPath & """")
+            ' O-26：Process.Start 返回的 Process 实现 IDisposable，必须释放（否则句柄/资源随 GC 才回收）。
+            Dim p As System.Diagnostics.Process = System.Diagnostics.Process.Start("explorer.exe", """" & folderPath & """")
+            If p IsNot Nothing Then p.Dispose()
             AppLogger.Info("已新开资源管理器窗口打开归档目录：" & folderPath)
         Catch ex As Exception
             AppLogger.Warn("新开资源管理器窗口失败（不影响归档）：" & ex.Message)
@@ -385,6 +429,7 @@ Public Module ExplorerFolderService
         sb.AppendLine("目标规范化=" & targetNorm)
         Dim shellApp As Object = Nothing
         Dim windows As Object = Nothing
+        Dim windowItems As New List(Of Object)()
         Dim matchedHwnd As IntPtr = IntPtr.Zero
         Try
             Dim shellType As Type = Type.GetTypeFromProgID("Shell.Application")
@@ -400,8 +445,10 @@ Public Module ExplorerFolderService
             Catch
             End Try
             sb.AppendLine("Shell 窗口数=" & count)
+            ' 先快照再遍历（枚举期间不释放元素；枚举器 RCW 亦被释放）。
+            windowItems = SnapshotComCollection(windows)
             Dim idx As Integer = -1
-            For Each w As Object In windows
+            For Each w As Object In windowItems
                 idx += 1
                 Try
                     If w Is Nothing Then Continue For
@@ -417,8 +464,6 @@ Public Module ExplorerFolderService
                     If isMatch AndAlso matchedHwnd = IntPtr.Zero Then matchedHwnd = TryGetHwnd(w)
                 Catch ex As Exception
                     sb.AppendLine(String.Format("[{0}] 读取异常：{1}", idx, ex.Message))
-                Finally
-                    ReleaseCom(w)
                 End Try
             Next
             If matchedHwnd <> IntPtr.Zero Then
@@ -429,6 +474,7 @@ Public Module ExplorerFolderService
         Catch ex As Exception
             sb.AppendLine("枚举失败：" & ex.Message)
         Finally
+            ReleaseComAll(windowItems)
             ReleaseCom(windows)
             ReleaseCom(shellApp)
         End Try
@@ -461,13 +507,9 @@ Public Module ExplorerFolderService
         Return If(String.IsNullOrEmpty(s), "-", s)
     End Function
 
+    ''' <summary>安全释放 COM 对象（统一委托到 ComRelease，避免多处实现走样）。</summary>
     Private Sub ReleaseCom(o As Object)
-        Try
-            If o IsNot Nothing AndAlso Marshal.IsComObject(o) Then
-                Marshal.ReleaseComObject(o)
-            End If
-        Catch
-        End Try
+        ComRelease.Release(o)
     End Sub
 
 End Module

@@ -31,15 +31,8 @@ Public NotInheritable Class InvoiceFieldNames
     Public Const Drawer As String = "开票人"
 
     ' —— 网约车/滴滴行程单字段 ——
-    Public Const Passenger As String = "乘车人"
-    Public Const DepartureTime As String = "出发时间"
-    Public Const ArrivalTime As String = "到达时间"
-    Public Const StartLocation As String = "起点"
-    Public Const EndLocation As String = "终点"
-    Public Const ServiceType As String = "车型服务类型"
-    Public Const OrderNumber As String = "订单号"
+    ' 说明：行程相关字段名在代码中直接使用字面量（"起点"/"终点"/"乘车人" 等），
+    ' 故这里只保留确有引用的常量，避免遗留误以为“已被使用”的死常量（O-25）。
     Public Const TripAmount As String = "行程金额"
-    Public Const City As String = "城市"
-    Public Const DriverInfo As String = "司机车辆信息"
 
 End Class

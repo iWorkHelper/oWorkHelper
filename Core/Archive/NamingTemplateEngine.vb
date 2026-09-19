@@ -15,7 +15,10 @@ Public Class NamingRenderResult
     Public Property MissingPlaceholders As List(Of String)
     ''' <summary>模板中出现的未知占位符（不认识，按空处理并提示）。</summary>
     Public Property UnknownPlaceholders As List(Of String)
-    ''' <summary>渲染后（占位符替换+折叠）内容为空——所有占位符均为空值，字段严重不足。</summary>
+    ''' <summary>
+    ''' 字段严重不足：模板中至少有一个占位符，但**没有任何占位符产出值**（或渲染结果本身为空白）。
+    ''' 判据是“字段充分性”而非“渲染结果是否空白”，避免 {金额}（{出发地点}）全空时产出「（）.pdf」这类垃圾文件名。
+    ''' </summary>
     Public Property WasEmpty As Boolean
 End Class
 
@@ -44,7 +47,13 @@ Public Module NamingTemplateEngine
             Dim missing As List(Of String) = result.MissingPlaceholders
             Dim unknown As List(Of String) = result.UnknownPlaceholders
 
+            ' 记录占位符总数与“产出非空值”的占位符数：用于按字段充分性判定回退，
+            ' 而不是看渲染结果是否空白（{金额}（{出发地点}）全空时会渲染出「（）」）。
+            Dim placeholderCount As Integer = 0
+            Dim valuedPlaceholderCount As Integer = 0
+
             Dim replaced As String = PlaceholderPattern.Replace(template, Function(m)
+                                                                              placeholderCount += 1
                                                                               Dim key As String = m.Groups(1).Value.Trim()
                                                                               Dim v As String = Nothing
                                                                               If values IsNot Nothing AndAlso values.TryGetValue(key, v) Then
@@ -52,6 +61,7 @@ Public Module NamingTemplateEngine
                                                                                       missing.Add(key)
                                                                                       Return String.Empty
                                                                                   End If
+                                                                                  valuedPlaceholderCount += 1
                                                                                   Return v
                                                                               Else
                                                                                   unknown.Add(key)
@@ -63,7 +73,11 @@ Public Module NamingTemplateEngine
             replaced = Regex.Replace(replaced, "[_\-]{2,}", "_")
             replaced = replaced.Trim(New Char() {"_"c, "-"c, "."c, " "c})
 
-            If String.IsNullOrWhiteSpace(replaced) Then
+            ' 字段充分性：模板含占位符但无一产出值 → 字段严重不足（即使渲染结果非空白，如「（）」）。
+            ' 纯字面量模板（无占位符）不按此判据回退，仍以渲染结果是否空白为准。
+            Dim noFieldValue As Boolean = placeholderCount > 0 AndAlso valuedPlaceholderCount = 0
+
+            If noFieldValue OrElse String.IsNullOrWhiteSpace(replaced) Then
                 result.WasEmpty = True
                 result.FileName = FileNameSanitizer.BuildFileName(fallbackBaseName, ".pdf", "未识别票据")
             Else

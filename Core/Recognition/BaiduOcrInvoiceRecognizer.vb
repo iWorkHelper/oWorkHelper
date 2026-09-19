@@ -1,4 +1,5 @@
 Imports System.IO
+Imports System.Globalization
 
 ''' <summary>
 ''' 百度智能财务票据识别识别器（真实调用）。
@@ -74,11 +75,27 @@ Public Class BaiduOcrInvoiceRecognizer
                 Return InvoiceRecognitionResult.Failure("待识别 PDF 不存在。")
             End If
 
+            ' 先按文件长度判断，避免把超大 PDF 整个读入内存之后才拒绝（原实现顺序相反）。
+            Dim pdfLength As Long = 0
+            Try
+                pdfLength = New FileInfo(pdfPath).Length
+            Catch
+            End Try
+            If pdfLength > MaxRawPdfBytes Then
+                Return InvoiceRecognitionResult.Failure(
+                    String.Format(CultureInfo.InvariantCulture,
+                                  "文件过大（{0:N0} 字节），无法在线 OCR（上限约 {1:N0} 字节）。", pdfLength, MaxRawPdfBytes))
+            End If
+
             Dim pdfBytes As Byte() = File.ReadAllBytes(pdfPath)
             If pdfBytes.Length > MaxRawPdfBytes Then
                 Return InvoiceRecognitionResult.Failure(
-                    String.Format("文件过大（{0:N0} 字节），无法在线 OCR（上限约 {1:N0} 字节）。", pdfBytes.Length, MaxRawPdfBytes))
+                    String.Format(CultureInfo.InvariantCulture,
+                                  "文件过大（{0:N0} 字节），无法在线 OCR（上限约 {1:N0} 字节）。", pdfBytes.Length, MaxRawPdfBytes))
             End If
+
+            ' 编码一次、跨页复用：多页识别时每页重算会对同一份 PDF 反复产生数十 MB 临时字符串。
+            Dim encodedPdf As String = BaiduOcrHttpClient.EncodePdfForUpload(pdfBytes)
 
             ' 获取 Token（缓存）
             Dim tokenResult As BaiduAccessTokenResult = _tokenProvider.GetToken(_options)
@@ -96,7 +113,7 @@ Public Class BaiduOcrInvoiceRecognizer
             Dim successfulPages As Integer = 0
 
             For page As Integer = 1 To maxPages
-                Dim raw As BaiduOcrRawResponse = _httpClient.RecognizeMultipleInvoice(_options, tokenResult.AccessToken, pdfBytes, page)
+                Dim raw As BaiduOcrRawResponse = _httpClient.RecognizeMultipleInvoice(_options, tokenResult.AccessToken, encodedPdf, page)
 
                 If Not raw.Success Then
                     pageErrors.Add("第 " & page & " 页请求失败：" & If(raw.NetworkError, "网络错误") & "（HTTP " & raw.HttpStatusCode & "）")

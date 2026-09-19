@@ -34,11 +34,4 @@ Public Class GeneralInvoiceParseResult
         Candidates.Add(c)
     End Sub
 
-    ''' <summary>取某字段择优值（无则 Nothing）。</summary>
-    Public Function ChosenValue(fieldName As String) As String
-        Dim c As GeneralInvoiceFieldCandidate = Nothing
-        If Chosen.TryGetValue(fieldName, c) AndAlso c IsNot Nothing Then Return c.Value
-        Return Nothing
-    End Function
-
 End Class

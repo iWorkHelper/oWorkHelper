@@ -50,6 +50,10 @@ Public Module UserFriendlyMessageProvider
                 e = Make(ErrorSeverity.Critical, "归档目录无写入权限。", "请更换目录或检查该目录的写入权限。")
             Case AppErrorCode.ArchiveFolderPathInvalid
                 e = Make(ErrorSeverity.Critical, "归档目录路径格式非法。", "请重新选择一个有效的本地目录。")
+            Case AppErrorCode.ArchivePathTooLong
+                e = Make(ErrorSeverity.Warning, "归档目录过深，加上文件名后可能超出 Windows 路径长度上限（260）。", "建议改用更短的归档目录（例如放在盘符根目录下的一级文件夹），或缩短命名模板。")
+            Case AppErrorCode.ArchiveDiskSpaceLow
+                e = Make(ErrorSeverity.Warning, "归档目录所在磁盘可用空间不足。", "请清理磁盘空间后重试；空间不足会导致部分文件归档失败。")
             Case AppErrorCode.NamingTemplateEmpty
                 e = Make(ErrorSeverity.Info, "命名模板为空，将使用默认模板。", "如需自定义，请在设置中填写命名规则。")
             Case AppErrorCode.NamingUnknownVariable
@@ -79,9 +83,20 @@ Public Module UserFriendlyMessageProvider
         Return e
     End Function
 
-    ''' <summary>把百度 OCR 的失败消息/错误码归类为具体 AppErrorCode（不含敏感信息）。</summary>
+    ''' <summary>
+    ''' 把百度 OCR 的失败消息/错误码归类为具体 AppErrorCode（不含敏感信息）。
+    ''' 优先依据百度 error_code（最精确），其次依据 HTTP 状态码，最后回退到消息关键词。
+    ''' </summary>
     Public Function ClassifyOcrFailure(message As String, Optional httpStatus As Integer = 0, Optional baiduErrorCode As String = Nothing) As AppErrorCode
         Dim m As String = If(message, "").ToLowerInvariant()
+
+        Dim code As Integer = 0
+        If Not String.IsNullOrWhiteSpace(baiduErrorCode) Then Integer.TryParse(baiduErrorCode.Trim(), code)
+
+        ' 百度错误码优先：110/111 = access_token 无效/过期；17/18/19 = 配额或 QPS 限制。
+        If code = 110 OrElse code = 111 Then Return AppErrorCode.OcrAuthFailed
+        If code = 17 OrElse code = 18 OrElse code = 19 Then Return AppErrorCode.OcrUnauthorizedOrQuota
+
         If httpStatus = 401 OrElse m.Contains("authentication") OrElse m.Contains("invalid_client") OrElse m.Contains("密钥") Then
             Return AppErrorCode.OcrAuthFailed
         End If
@@ -91,7 +106,10 @@ Public Module UserFriendlyMessageProvider
         If m.Contains("timeout") OrElse m.Contains("超时") OrElse m.Contains("timed out") Then
             Return AppErrorCode.OcrTimeout
         End If
-        If m.Contains("网络") OrElse m.Contains("network") OrElse m.Contains("远程") OrElse m.Contains("连接") OrElse m.Contains("uri") Then
+        ' 注意：此处原先用 m.Contains("uri") 判定网络错误，但 "security" 也包含 "uri"，
+        ' 会把 TLS/安全通道错误误报为网络错误。改为明确的关键词。
+        If m.Contains("网络") OrElse m.Contains("network") OrElse m.Contains("远程") OrElse m.Contains("连接") OrElse
+           m.Contains("安全通道") OrElse m.Contains("tls") OrElse m.Contains("ssl") OrElse m.Contains("certificate") Then
             Return AppErrorCode.OcrNetworkError
         End If
         Return AppErrorCode.OcrReturnedError

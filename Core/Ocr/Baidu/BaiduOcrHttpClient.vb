@@ -1,4 +1,5 @@
 Imports System.IO
+Imports System.Globalization
 Imports System.Net
 Imports System.Text
 Imports System.Web.Script.Serialization
@@ -26,13 +27,29 @@ Public Class BaiduOcrHttpClient
     End Sub
 
     ''' <summary>
+    ''' 把 PDF 字节编码为可放入表单体的 pdf_file 值：Base64 后再 UrlEncode。
+    ''' 由调用方在**页循环之外**调用一次并跨页复用，避免同一份 PDF 被反复编码。
+    ''' 注意：Uri.EscapeDataString 在 .NET Framework 下对超长字符串（约 65520 字符）会抛
+    ''' "URI 字符串太长"；PDF 的 Base64 远超该上限，因此必须使用 WebUtility.UrlEncode。
+    ''' </summary>
+    Public Shared Function EncodePdfForUpload(pdfBytes As Byte()) As String
+        If pdfBytes Is Nothing OrElse pdfBytes.Length = 0 Then Return String.Empty
+        Return WebUtility.UrlEncode(Convert.ToBase64String(pdfBytes))
+    End Function
+
+    ''' <summary>
     ''' 调用智能财务票据识别接口，识别指定页码。
     ''' </summary>
     ''' <param name="options">OCR 配置。</param>
     ''' <param name="accessToken">已获取的 access_token（不写日志）。</param>
-    ''' <param name="pdfBytes">PDF 文件字节。</param>
+    ''' <param name="encodedPdfBase64">
+    ''' 已 UrlEncode 的 PDF Base64（见 <see cref="EncodePdfForUpload"/>）。
+    ''' 由调用方一次性计算后跨页复用：多页识别时若每页重算，
+    ''' 会对同一份 PDF 反复产生数十 MB 的临时字符串。
+    ''' </param>
     ''' <param name="pageNum">pdf_file_num 页码（从 1 开始）。</param>
-    Public Function RecognizeMultipleInvoice(options As BaiduOcrOptions, accessToken As String, pdfBytes As Byte(), pageNum As Integer) As BaiduOcrRawResponse
+    Public Function RecognizeMultipleInvoice(options As BaiduOcrOptions, accessToken As String,
+                                            encodedPdfBase64 As String, pageNum As Integer) As BaiduOcrRawResponse
         Dim resp As New BaiduOcrRawResponse With {.PageIndex = pageNum}
 
         Try
@@ -40,13 +57,9 @@ Public Class BaiduOcrHttpClient
 
             Dim url As String = options.OcrApiUrl & "?access_token=" & Uri.EscapeDataString(accessToken)
 
-            ' 组装 body：pdf_file 为 Base64 后再 UrlEncode。
-            ' 注意：Uri.EscapeDataString 在 .NET Framework 下对超长字符串（约 65520 字符）会抛
-            ' "URI 字符串太长"；PDF 的 Base64 远超该上限，故改用 WebUtility.UrlEncode（无长度限制）。
-            Dim base64 As String = Convert.ToBase64String(pdfBytes)
             Dim sb As New StringBuilder()
-            sb.Append("pdf_file=").Append(WebUtility.UrlEncode(base64))
-            sb.Append("&pdf_file_num=").Append(pageNum.ToString())
+            sb.Append("pdf_file=").Append(If(encodedPdfBase64, String.Empty))
+            sb.Append("&pdf_file_num=").Append(pageNum.ToString(CultureInfo.InvariantCulture))
             sb.Append("&probability=").Append(If(options.ReturnProbability, "true", "false"))
             sb.Append("&location=").Append(If(options.ReturnLocation, "true", "false"))
             sb.Append("&verify_parameter=").Append(If(options.VerifyParameter, "true", "false"))
@@ -111,18 +124,36 @@ Public Class BaiduOcrHttpClient
         End Try
     End Sub
 
+    ''' <summary>响应体上限（16 MB）：防止异常/恶意响应造成无界内存增长。</summary>
+    Private Const MaxResponseBytes As Integer = 16 * 1024 * 1024
+
+    ''' <summary>
+    ''' 读取响应体。带字节上限，超限抛 InvalidOperationException
+    ''' （由上层转为可处理的失败，而不是把进程内存吃满）。
+    ''' </summary>
     Private Function ReadStream(s As Stream) As String
-        Using sr As New StreamReader(s, Encoding.UTF8)
-            Return sr.ReadToEnd()
+        If s Is Nothing Then Return String.Empty
+        Dim buffer(8191) As Byte
+        Dim total As Integer = 0
+        Using ms As New MemoryStream()
+            Dim read As Integer = s.Read(buffer, 0, buffer.Length)
+            While read > 0
+                total += read
+                If total > MaxResponseBytes Then
+                    Throw New InvalidOperationException(
+                        "OCR 响应体超过上限（" & MaxResponseBytes.ToString(CultureInfo.InvariantCulture) & " 字节），已中止读取。")
+                End If
+                ms.Write(buffer, 0, read)
+                read = s.Read(buffer, 0, buffer.Length)
+            End While
+            Return Encoding.UTF8.GetString(ms.ToArray())
         End Using
     End Function
 
     Private Function ReadWebExceptionBody(wex As WebException) As String
         Try
             If wex.Response IsNot Nothing Then
-                Using sr As New StreamReader(wex.Response.GetResponseStream(), Encoding.UTF8)
-                    Return sr.ReadToEnd()
-                End Using
+                Return ReadStream(wex.Response.GetResponseStream())
             End If
         Catch
         End Try

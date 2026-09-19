@@ -43,11 +43,6 @@ Public Class PdfTextLine
         End Get
     End Property
 
-    ''' <summary>是否包含指定子串（在拼接文本中）。</summary>
-    Public Function Contains(sub_ As String) As Boolean
-        Return Text.Contains(sub_)
-    End Function
-
     ''' <summary>返回文本等于指定值的首个词（用于定位表头列）。</summary>
     Public Function FindWord(text As String) As PdfTextWord
         For Each w As PdfTextWord In Words

@@ -192,7 +192,12 @@ Public Class SettingsForm
             My.Settings.OcrEnabled = onlineParseSelected
             My.Settings.BaiduApiKey = apiKey
             ' Secret Key 经 DPAPI 加密后保存（不明文存 user.config）。
-            ProtectedSettingsProvider.SetSecretKey(secretKey)
+            ' 加密不可用时中止本次保存，绝不明文落盘。
+            If Not ProtectedSettingsProvider.SetSecretKey(secretKey) Then
+                MessageBox.Show("无法加密保存 Secret Key（Windows DPAPI 不可用），本次设置未保存，以避免密钥以明文写入配置文件。",
+                                "保存失败", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+                Return
+            End If
             My.Settings.BaiduOcrApiUrl = If(String.IsNullOrEmpty(apiUrl), "https://aip.baidubce.com/rest/2.0/ocr/v1/multiple_invoice", apiUrl)
             My.Settings.BaiduTokenUrl = If(String.IsNullOrEmpty(tokenUrl), "https://aip.baidubce.com/oauth/2.0/token", tokenUrl)
             My.Settings.OcrTimeoutMs = CInt(numTimeout.Value)
@@ -213,6 +218,12 @@ Public Class SettingsForm
             If String.IsNullOrEmpty(unknownTpl) Then unknownTpl = NamingTemplates.DefaultUnknownTemplate
             My.Settings.UnknownNameTemplate = unknownTpl
             My.Settings.Save()
+
+            ' 保存后校验：确认存储的确实是 DPAPI 密文，再宣布成功。
+            If Not ProtectedSettingsProvider.VerifyPersisted() Then
+                MessageBox.Show("Secret Key 保存后校验失败：配置中不是加密值，请重试或检查用户配置文件权限。",
+                                "保存校验失败", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            End If
 
             ' 密钥可能变更，使已缓存的 token 失效。
             BaiduAccessTokenProvider.InvalidateCache()

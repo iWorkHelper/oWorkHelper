@@ -36,7 +36,7 @@
     <InstallUrl />
     <TargetCulture>zh-chs</TargetCulture>
     <!-- ClickOnce/VSTO requires a four-part numeric version. -->
-    <ApplicationVersion>1.2.0.0</ApplicationVersion>
+     <ApplicationVersion>1.2.1.0</ApplicationVersion>
     <AutoIncrementApplicationRevision>false</AutoIncrementApplicationRevision>
     <UpdateEnabled>false</UpdateEnabled>
     <UpdateInterval>0</UpdateInterval>
@@ -122,9 +122,13 @@
   -->
   <!--
     Release-Intranet: 内网版本，禁用在线解析
+    注意：必须保留基础常量（$(DefineConstants)，含 VSTO40,UseOfficeInterop）。
+    直接写 <DefineConstants>INTRANET_BUILD</DefineConstants> 会覆盖而非追加，
+    导致下方 Choose 的 useofficeinterop 条件不成立、发布版静默改用 COMReference/tlbimp
+    引用 Office 互操作，与 Debug 配置不一致。
   -->
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release-Intranet|AnyCPU' ">
-    <DefineConstants>INTRANET_BUILD</DefineConstants>
+    <DefineConstants>$(DefineConstants),INTRANET_BUILD</DefineConstants>
     <DefineDebug>false</DefineDebug>
     <DefineTrace>true</DefineTrace>
     <DebugType>pdbonly</DebugType>
@@ -137,9 +141,10 @@
   </PropertyGroup>
   <!--
     Release-Internet: 外网版本，启用在线解析
+    注意：同 Release-Intranet，必须追加而非覆盖 $(DefineConstants)。
   -->
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release-Internet|AnyCPU' ">
-    <DefineConstants>INTERNET_BUILD</DefineConstants>
+    <DefineConstants>$(DefineConstants),INTERNET_BUILD</DefineConstants>
     <DefineDebug>false</DefineDebug>
     <DefineTrace>true</DefineTrace>
     <DebugType>pdbonly</DebugType>
@@ -359,6 +364,7 @@
     <Compile Include="Core\Common\FileNameSanitizer.vb" />
     <Compile Include="Core\Common\PrivacySafeFormatter.vb" />
     <Compile Include="Core\Common\ExceptionFormatter.vb" />
+    <Compile Include="Core\Common\ComRelease.vb" />
     <Compile Include="Core\Common\ErrorSeverity.vb" />
     <Compile Include="Core\Common\AppErrorCode.vb" />
     <Compile Include="Core\Common\AppError.vb" />
@@ -404,7 +410,6 @@
     <Compile Include="Core\Ocr\Baidu\BaiduMultipleInvoiceResponseParser.vb" />
     <Compile Include="Core\Ocr\Baidu\BaiduInvoiceFieldMapper.vb" />
     <Compile Include="Core\Mail\MailAttachmentItem.vb" />
-    <Compile Include="Core\Mail\MailReadResult.vb" />
     <Compile Include="Core\Mail\MailPdfGroup.vb" />
     <Compile Include="Core\Mail\MailPdfGroupingResult.vb" />
     <Compile Include="Core\Mail\MailAttachmentReader.vb" />

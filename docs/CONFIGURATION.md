@@ -188,30 +188,27 @@ OfflineTester --save-baidu-config
 ### 主日志文件
 
 ```
-{归档目录}\logs\yyyy-MM-dd.log
-```
-
-当归档目录不可用时，自动回退到备用位置：
-
-```
 %AppData%\iWorkHelper\logs\yyyy-MM-dd.log
 ```
+
+日志目录**固定**为当前用户 AppData（`PathHelper.GetLogDirectory`），不再随归档目录变化：
+归档目录可能是共享/网络目录，多个用户会争用同一个 `yyyy-MM-dd.log` 文件名，并发追加会静默失败。
 
 ### 归档报告
 
 每次归档操作完成后生成归档报告：
 
 ```
-archive-report-yyyyMMdd-HHmmss.txt
+%AppData%\iWorkHelper\logs\archive-report-yyyyMMdd-HHmmss.txt
 ```
 
-报告保存在与日志文件相同的目录中。
+报告由 `ArchiveReportWriter` 写入同一个日志目录（因此与日志位置保持一致）。
 
 ### 日志安全
 
 日志文件中不会记录以下敏感信息：
-- API Key (AK)
-- Secret Key (SK)
+
+- 完整 API Key (AK) / Secret Key (SK)（仅以 `前2位****后2位` 的掩码形式出现在配置摘要中）
 - Access Token
 
 ---

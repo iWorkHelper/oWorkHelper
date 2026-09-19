@@ -66,15 +66,25 @@ Public Class BaiduAccessTokenProvider
         Try
             BaiduOcrHttpClient.EnsureTls12()
 
-            Dim url As String = options.TokenUrl & "?grant_type=client_credentials" &
-                                "&client_id=" & Uri.EscapeDataString(options.ApiKey) &
-                                "&client_secret=" & Uri.EscapeDataString(options.SecretKey)
+            ' 凭据放在 POST body，而不是 URL 查询串：
+            ' client_secret 出现在查询串中极易被代理日志、HTTP 访问日志与错误遥测记录。
+            ' 百度 OAuth 接口同时支持查询串与表单体两种传参方式。
+            Dim url As String = options.TokenUrl
+            Dim form As String = "grant_type=client_credentials" &
+                                 "&client_id=" & Uri.EscapeDataString(options.ApiKey) &
+                                 "&client_secret=" & Uri.EscapeDataString(options.SecretKey)
+            Dim formBytes As Byte() = Encoding.UTF8.GetBytes(form)
 
             Dim request As HttpWebRequest = CType(WebRequest.Create(url), HttpWebRequest)
             request.Method = "POST"
             request.ContentType = "application/x-www-form-urlencoded"
             request.Timeout = Math.Max(5000, options.TimeoutMilliseconds)
-            request.ContentLength = 0
+            request.ReadWriteTimeout = Math.Max(5000, options.TimeoutMilliseconds)
+            request.ContentLength = formBytes.Length
+
+            Using reqStream As System.IO.Stream = request.GetRequestStream()
+                reqStream.Write(formBytes, 0, formBytes.Length)
+            End Using
 
             Dim statusCode As Integer = 0
             Dim body As String = Nothing

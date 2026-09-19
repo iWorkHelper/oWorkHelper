@@ -19,6 +19,10 @@ Public NotInheritable Class ArchiveRunGuard
     ' 0 = 空闲，1 = 运行中。所有读写均通过 Interlocked 原子完成。
     Private Shared _state As Integer = 0
 
+    ' 持有者代号：每次成功获取自增。用于拒绝"非持有者"的释放请求
+    ' （过期 token / 伪造 token 不得释放他人的运行锁）。
+    Private Shared _generation As Long = 0
+
     ' 以下为“持有者”诊断信息，仅用于日志，不含任何敏感数据。
     Private Shared _batchId As String = Nothing
     Private Shared _threadId As Integer = 0
@@ -34,10 +38,11 @@ Public NotInheritable Class ArchiveRunGuard
         If Interlocked.CompareExchange(_state, 1, 0) <> 0 Then
             Return Nothing ' 已被占用
         End If
+        Dim ownerId As Long = Interlocked.Increment(_generation)
         _batchId = batchId
         _threadId = Thread.CurrentThread.ManagedThreadId
         _acquiredAtTicks = DateTime.UtcNow.Ticks
-        Return New ArchiveRunToken()
+        Return New ArchiveRunToken(ownerId)
     End Function
 
     ''' <summary>当前是否有归档任务正在运行（原子读，不改变状态）。</summary>
@@ -62,8 +67,18 @@ Public NotInheritable Class ArchiveRunGuard
                              If(String.IsNullOrEmpty(_batchId), "(未命名)", _batchId), _threadId, heldMs)
     End Function
 
-    ''' <summary>仅供 <see cref="ArchiveRunToken.Dispose"/> 调用：原子释放运行锁并清理持有者信息。</summary>
-    Friend Shared Sub Release()
+    ''' <summary>
+    ''' 仅供 <see cref="ArchiveRunToken.Dispose"/> 调用：原子释放运行锁并清理持有者信息。
+    ''' 只有持有者代号匹配时才释放；否则视为无效释放请求（no-op），
+    ''' 避免过期/伪造的 token 释放掉他人正在使用的运行锁。
+    ''' </summary>
+    ''' <param name="ownerId">申请方持有者代号。</param>
+    Friend Shared Sub Release(ownerId As Long)
+        ' 锁未被释放前 _state 恒为 1，因此此处不可能与新的 TryAcquire 竞争成功。
+        If Interlocked.Read(_generation) <> ownerId Then
+            AppLogger.Warn("忽略无效的运行锁释放请求（非当前持有者）。")
+            Return
+        End If
         _batchId = Nothing
         _threadId = 0
         _acquiredAtTicks = 0

@@ -68,11 +68,17 @@
 - 本地识别不稳定：多为图片型PDF或异版式，启用OCR兜底
 - OCR成功但字段空：版式不受支持，文件仍会归档
 - 坐标行重建已对同版式滴滴行程单稳定
+- **多行程单只取首条行程用于命名**：一份行程单声明多笔行程（如“共3笔行程”）时，
+  当前只把**首条行程**的起点/终点/金额用于文件命名（表头级“合计”金额仍会完整解析）。
+  声明笔数与实际解析条数不一致时，`LocalTextInvoiceRecognizer` 会写入结果消息并记 `Warn` 日志
+  （日志中搜索“行程单声明”即可定位）。需要严格区分多笔行程时应人工核对原 PDF。
+  另外，滴滴判定已收紧：仅销售方名称或备注里出现“滴滴/行程单/网约车”不会再被误判为行程单，
+  需要“上车时间 / 共N笔行程 / 行程起止 / 行程明细 / 起点+终点 / 表头短行含行程单”等证据。
 
 ## 5. 离线诊断工具 (OfflineTester)
 
 ```
-OfflineTester.exe --selftest                     # 内置自测(35项)
+OfflineTester.exe --selftest                     # 内置自测（当前 100 项）
 OfflineTester.exe --preflight <归档目录>           # 预检查
 OfflineTester.exe --simulate-error <错误码|list>   # 查看错误文案
 OfflineTester.exe <pdf> --local-only              # 本地识别诊断
@@ -81,9 +87,14 @@ OfflineTester.exe <pdf> --classify                # 分类诊断
 OfflineTester.exe --dump-local-debug              # 转储本地解析诊断
 ```
 
+> `--selftest` 打印的“通过 N，失败 0”会随用例增加而变化，以实际输出为准；
+> 发布门禁要求**失败数为 0**（不锁死通过数）。
+
 ## 6. 日志与报告位置
 
-- 日志：`{归档目录}\logs\yyyy-MM-dd.log` 或 `%AppData%\iWorkHelper\logs\`
-- 报告：同目录 `archive-report-yyyyMMdd-HHmmss.txt`
+- 日志：`%AppData%\iWorkHelper\logs\yyyy-MM-dd.log`（固定写入当前用户 AppData；不再写入归档目录，
+  以免多个用户共用共享/网络归档目录时争用同一个 `yyyy-MM-dd.log`）
+- 报告：`%AppData%\iWorkHelper\logs\archive-report-yyyyMMdd-HHmmss.txt`
+  （`ArchiveReportWriter` 使用同一个日志目录，因此日志目录变化后报告位置随之变化）
 - 汇总弹窗显示报告路径和日志路径
-- 日志不含AK/SK/token
+- 日志不含完整 AK/SK/token（AK/SK 仅以 `前2位****后2位` 的掩码形式出现）
