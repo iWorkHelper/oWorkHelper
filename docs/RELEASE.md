@@ -2,9 +2,9 @@
 
 ## 当前版本
 
-当前产品版本：`1.2.1`。
+当前产品版本：`1.3.0`。
 
-需要四段数值版本的字段使用 `1.2.1.0`，例如 `AssemblyVersion`、`AssemblyFileVersion` 和 VSTO `ApplicationVersion`。
+需要四段数值版本的字段使用 `1.3.0.0`，例如 `AssemblyVersion`、`AssemblyFileVersion` 和 VSTO `ApplicationVersion`。
 
 ## 构建环境
 
@@ -47,13 +47,17 @@ VSTO 构建需要清单签名证书。源码仓库不得提交 PFX、私钥、�
 
 ## 发布前检查
 
-- `AssemblyInformationalVersion` 使用 `1.2.1`。
-- `AssemblyVersion`、`AssemblyFileVersion`、`ApplicationVersion` 使用合法四段版本 `1.2.1.0`。
+- `AssemblyInformationalVersion` 使用 `1.3.0`。
+- `AssemblyVersion`、`AssemblyFileVersion`、`ApplicationVersion` 使用合法四段版本 `1.3.0.0`。
 - `Release-Intranet` 与 `Release-Internet` 均应构建通过且无警告。
 - `OfflineTester --selftest` 必须通过。
 - 不提交 `bin/`、`obj/`、`packages/`、日志、本地配置、样例票据、OCR 响应、密钥或证书材料。
 
 ## 变更记录
+
+### v1.3.0
+
+- 更新 oWorkHelper 产品版本至 `1.3.0`。
 
 ### v1.2.1
 

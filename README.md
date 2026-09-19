@@ -2,7 +2,7 @@
 
 `oWorkHelper` 是 [iWorkHelper Organization](https://github.com/iWorkHelper) 旗下的 Outlook VSTO 加载项，用于批量处理邮件中的 PDF 附件（发票、行程单），完成自动识别、合并、命名和归档。
 
-**当前版本**：`v1.2.1`
+**当前版本**：`v1.3.0`
 
 下载：[最新 Release](https://github.com/iWorkHelper/oWorkHelper/releases/latest)
 
@@ -178,7 +178,7 @@ VSTO 加载项通过 ClickOnce 发布或手动注册安装到 Outlook。加载�
 
 ## 版本号规则
 
-对外产品版本使用 Major.Minor.Patch，当前版本为 1.2.1。需要四段数值版本的 VSTO / Assembly 字段使用 1.2.1.0。详细规则见 [docs/RELEASE.md](docs/RELEASE.md)。
+对外产品版本使用 Major.Minor.Patch，当前版本为 1.3.0。需要四段数值版本的 VSTO / Assembly 字段使用 1.3.0.0。详细规则见 [docs/RELEASE.md](docs/RELEASE.md)。
 
 ## 文档入口
 
